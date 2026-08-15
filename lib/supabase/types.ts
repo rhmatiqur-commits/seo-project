@@ -1,6 +1,6 @@
 // Generated via the Supabase MCP `generate_typescript_types` tool against the
-// live schema (supabase/migrations/0001_init.sql + 0002_security_hardening.sql).
-// Regenerate after any migration change rather than hand-editing the Tables section.
+// live schema (supabase/migrations/0001-0004). Regenerate after any migration
+// change and reconcile with the Tables section rather than hand-editing generated shapes.
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
@@ -366,6 +366,54 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      scheduler_runs: {
+        Row: {
+          completed_at: string | null;
+          crawl_jobs_created: number;
+          error: string | null;
+          id: string;
+          jobs_completed: number;
+          jobs_failed: number;
+          jobs_processed: number;
+          jobs_retried: number;
+          stale_recovered: number;
+          started_at: string;
+          status: Database["public"]["Enums"]["job_status"];
+          summary: Json;
+          websites_checked: number;
+        };
+        Insert: {
+          completed_at?: string | null;
+          crawl_jobs_created?: number;
+          error?: string | null;
+          id?: string;
+          jobs_completed?: number;
+          jobs_failed?: number;
+          jobs_processed?: number;
+          jobs_retried?: number;
+          stale_recovered?: number;
+          started_at?: string;
+          status?: Database["public"]["Enums"]["job_status"];
+          summary?: Json;
+          websites_checked?: number;
+        };
+        Update: {
+          completed_at?: string | null;
+          crawl_jobs_created?: number;
+          error?: string | null;
+          id?: string;
+          jobs_completed?: number;
+          jobs_failed?: number;
+          jobs_processed?: number;
+          jobs_retried?: number;
+          stale_recovered?: number;
+          started_at?: string;
+          status?: Database["public"]["Enums"]["job_status"];
+          summary?: Json;
+          websites_checked?: number;
+        };
+        Relationships: [];
       };
       seo_audits: {
         Row: {
@@ -745,12 +793,14 @@ export type Database = {
       websites: {
         Row: {
           base_url: string;
+          crawl_frequency_days: number;
           crawl_max_depth: number;
           crawl_max_pages: number;
           created_at: string;
           id: string;
           last_crawled_at: string | null;
           name: string;
+          next_crawl_at: string | null;
           organization_id: string;
           robots_txt_available: boolean | null;
           sitemap_available: boolean | null;
@@ -760,12 +810,14 @@ export type Database = {
         };
         Insert: {
           base_url: string;
+          crawl_frequency_days?: number;
           crawl_max_depth?: number;
           crawl_max_pages?: number;
           created_at?: string;
           id?: string;
           last_crawled_at?: string | null;
           name: string;
+          next_crawl_at?: string | null;
           organization_id: string;
           robots_txt_available?: boolean | null;
           sitemap_available?: boolean | null;
@@ -775,12 +827,14 @@ export type Database = {
         };
         Update: {
           base_url?: string;
+          crawl_frequency_days?: number;
           crawl_max_depth?: number;
           crawl_max_pages?: number;
           created_at?: string;
           id?: string;
           last_crawled_at?: string | null;
           name?: string;
+          next_crawl_at?: string | null;
           organization_id?: string;
           robots_txt_available?: boolean | null;
           sitemap_available?: boolean | null;

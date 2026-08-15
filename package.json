@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test lib/audit/rules/titles-and-meta.test.ts lib/audit/rules/links.test.ts",
+    "test": "node --import tsx --test lib/audit/rules/titles-and-meta.test.ts lib/audit/rules/links.test.ts lib/jobs/policy.test.ts",
+    "scheduler:run": "node --env-file=.env.local --import tsx scripts/run-scheduler.ts",
     "seed": "node --env-file=.env.local --import tsx scripts/seed.ts",
     "jobs:sweep": "node --env-file=.env.local --import tsx scripts/run-pending-jobs.ts"
   },

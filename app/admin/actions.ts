@@ -6,6 +6,8 @@ import { createOrganization } from "@/lib/db/organizations";
 import { createWebsite } from "@/lib/db/websites";
 import { updateTaskStatus } from "@/lib/db/tasks";
 import { triggerJob } from "@/lib/jobs/trigger";
+import { processPendingJobs } from "@/lib/jobs/runner";
+import { runScheduledSweep } from "@/lib/jobs/scheduler";
 import type { TaskStatus } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
@@ -74,4 +76,22 @@ export async function updateTaskStatusAction(formData: FormData): Promise<void> 
   const status = String(formData.get("status")) as TaskStatus;
   await updateTaskStatus(taskId, status);
   redirect(`/admin/websites/${websiteId}`);
+}
+
+/** Manual-testing control: runs the exact same sweep the scheduled cron
+ * workflow calls (lib/jobs/scheduler.ts), in-process — no HTTP round trip or
+ * CRON_SECRET needed since this only runs from an already-authenticated
+ * (Basic Auth via proxy.ts) admin page. */
+export async function runSchedulerAction(): Promise<void> {
+  await runScheduledSweep();
+  revalidatePath("/admin/automation");
+  redirect("/admin/automation");
+}
+
+/** Manual-testing control: drains PENDING jobs without running the
+ * scheduler's due-website/retry/stale-recovery phases. */
+export async function processPendingJobsAction(): Promise<void> {
+  await processPendingJobs();
+  revalidatePath("/admin/automation");
+  redirect("/admin/automation");
 }

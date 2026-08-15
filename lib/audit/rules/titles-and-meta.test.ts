@@ -14,6 +14,8 @@ function fakeWebsite(): WebsiteForAudit {
     sitemap_available: true,
     crawl_max_pages: 50,
     crawl_max_depth: 4,
+    crawl_frequency_days: 7,
+    next_crawl_at: null,
     status: "active",
     last_crawled_at: null,
     created_at: "2026-01-01T00:00:00Z",

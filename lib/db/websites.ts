@@ -38,3 +38,20 @@ export async function updateWebsite(
   if (error) throw error;
   return data;
 }
+
+/** Every active website — the scheduler filters this down to due ones with
+ * lib/jobs/policy.ts's isDueForCrawl, rather than duplicating the "due" math
+ * in SQL (small scale, and keeps one tested source of truth for the logic). */
+export async function listActiveWebsites(): Promise<WebsiteRow[]> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("websites").select("*").eq("status", "active");
+  if (error) throw error;
+  return data;
+}
+
+export async function listAllWebsitesForAutomation(): Promise<WebsiteRow[]> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("websites").select("*").order("name", { ascending: true });
+  if (error) throw error;
+  return data;
+}

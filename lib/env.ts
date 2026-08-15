@@ -24,6 +24,11 @@ const envSchema = z
       .string()
       .min(1)
       .default("SEOPlatformBot/0.1 (+https://example.com/bot)"),
+
+    // Gates POST/GET /api/scheduler/run. Named to match Vercel Cron's own
+    // convention (it auto-sends `Authorization: Bearer $CRON_SECRET`), so
+    // deploying there later needs zero extra auth code.
+    CRON_SECRET: z.string().min(1),
   })
   .refine((val) => (val.AI_PROVIDER === "anthropic" ? Boolean(val.ANTHROPIC_API_KEY) : Boolean(val.OPENAI_API_KEY)), {
     message: "Set ANTHROPIC_API_KEY (when AI_PROVIDER=anthropic) or OPENAI_API_KEY (when AI_PROVIDER=openai).",

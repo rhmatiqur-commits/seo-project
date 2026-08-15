@@ -1,10 +1,20 @@
-# AI SEO Automation Platform — Phase 1
+# AI SEO Automation Platform
 
-A multi-tenant foundation for a productised AI SEO service. Phase 1 delivers one working, end-to-end pipeline:
+A multi-tenant foundation for a productised AI SEO service.
+
+**Phase 1** delivered one working, end-to-end pipeline, manually triggered:
 
 ```
 CLIENT → WEBSITE → CRAWL WEBSITE → STORE WEBSITE DATA → ANALYSE WEBSITE → IDENTIFY SEO OPPORTUNITIES → CREATE SEO TASKS
 ```
+
+**Phase 2A** makes that pipeline advance itself, on a schedule, safely re-runnable:
+
+```
+SCHEDULER → JOB QUEUE → WORKER → ACTION → DATABASE → NEXT SCHEDULED RUN
+```
+
+A successful `CRAWL_WEBSITE` job automatically enqueues `RUN_SEO_AUDIT`, which automatically enqueues `GENERATE_SEO_OPPORTUNITIES` — regardless of whether the crawl was started by the scheduler, the admin UI, or the API. Manual triggers still work exactly as in Phase 1.
 
 CV Central is the first test client, but nothing in the code is CV-Central-specific — it's seeded through the same `createOrganization`/`createWebsite` calls any client onboarding would use.
 
@@ -15,31 +25,34 @@ CV Central is the first test client, but nothing in the code is CV-Central-speci
 - **Crawler**: `lib/crawler/*` — built-in `fetch` + `cheerio` for HTML parsing + `robots-parser` for robots.txt. No headless browser (no JS rendering) — a known Phase 1 limitation.
 - **SEO audit**: `lib/audit/*` — a set of small, pure rule functions (`lib/audit/rules/*.ts`) run over crawled pages/links by `lib/audit/engine.ts`.
 - **AI**: `lib/ai/provider.ts` defines an `AIProvider` interface (`generateStructuredOutput`, `generateText`, `analyse`); `lib/ai/anthropic-provider.ts` is the only implementation today, using Claude's tool-use for structured output. `lib/ai/seo-analysis.ts` is the orchestration: build a compact structured summary from the DB → call the provider → validate with zod → dedupe → persist opportunities + tasks.
-- **Jobs**: `lib/jobs/*` — a `jobs` table + an in-process runner (`processJob`/`processPendingJobs`), no Redis/queue yet. `lib/jobs/trigger.ts` is the fire-and-forget seam API routes and admin actions call.
-- **Scheduler**: none yet — every job is manually triggered (button in the admin UI, or a POST to the API). `/api/jobs/process` and `scripts/run-pending-jobs.ts` are the seam a real cron/worker would call later.
+- **Jobs**: `lib/jobs/*` — a `jobs` table + an in-process runner, no Redis/queue yet. `lib/jobs/trigger.ts` (fire-and-forget) is still what manual admin/API triggers use; `processPendingJobs` (`lib/jobs/runner.ts`) is a bounded worker loop that explicitly drains the queue rather than relying on a detached promise — used by the scheduler, `/api/jobs/process`, and `npm run jobs:sweep`. `processJob` enqueues the next pipeline stage on `COMPLETED` (`lib/jobs/policy.ts` has the pure due/stale/retry/next-stage decision logic, unit-tested in `policy.test.ts`).
+- **Scheduler**: `lib/jobs/scheduler.ts`'s `runScheduledSweep()` — recovers stale jobs, requeues retry-eligible failures, enqueues `CRAWL_WEBSITE` for due active websites, runs the worker loop, records a `scheduler_runs` row. Exposed at `POST/GET /api/scheduler/run` (bearer-secret gated) and called on a cron by `.github/workflows/scheduler.yml`. Designed so a real queue (BullMQ/Redis) could later replace the worker loop without touching `lib/jobs/handlers/*` — handlers only depend on the `JobHandler` signature, never on how they're invoked.
 
 ```
 app/
   admin/            internal admin UI (server components + server actions)
+    automation/      job stats, scheduler runs, per-website schedule, manual controls
   api/               JSON API route handlers
+    scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint
 lib/
   supabase/          server-side client + generated Database types
   crawler/            crawl engine
   audit/               technical SEO rules + engine
   ai/                    provider abstraction, schemas, prompts, analysis service
-  jobs/                 job runner + per-job-type handlers
+  jobs/                 job runner, scheduler, pure policy/decision functions, per-job-type handlers
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
-scripts/               seed.ts, run-pending-jobs.ts
+scripts/               seed.ts, run-pending-jobs.ts, run-scheduler.ts
 ```
 
 ## Database schema
 
-14 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) for the full source of truth.
+16 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0004_scheduling.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
-- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`) and last-known robots.txt/sitemap availability.
-- **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`, `payload`, `result`, timestamps).
+- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and scheduling fields added in Phase 2A: `next_crawl_at`, `crawl_frequency_days` (default 7 — weekly). `status='active'` doubles as the "eligible for scheduled crawling" flag; `paused`/`archived` websites are skipped by the scheduler.
+- **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by the scheduler.
+- **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error. Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
 - **website_pages** — one row per crawled URL: status, title, meta description, H1, headings (jsonb), word count, canonical, noindex, structured-data types, image/link counts, orphan flag, redirect chain (jsonb).
 - **page_links** — the internal/external link graph between crawled pages.
 - **seo_audits** / **seo_issues** — one audit run → many issues, each with severity/category/recommended action.
@@ -67,6 +80,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | Required when `AI_PROVIDER=openai`. https://platform.openai.com/api-keys, model defaults to `gpt-4o` |
 | `ADMIN_PASSWORD` | Any value — gates `/admin` via HTTP Basic Auth (Phase 1 has no per-user login) |
 | `CRAWLER_USER_AGENT` | Optional override; defaults to `SEOPlatformBot/0.1 (+https://example.com/bot)` |
+| `CRON_SECRET` | Any long random value (e.g. `openssl rand -hex 32`) — gates `/api/scheduler/run`. Matches Vercel Cron's own convention. |
 
 ## Local development
 
@@ -140,14 +154,39 @@ npm run jobs:sweep          # one-off CLI sweep of PENDING jobs
 curl -X POST http://localhost:3000/api/jobs/process -u admin:$ADMIN_PASSWORD   # same, over HTTP
 ```
 
-Point a real scheduler at the HTTP endpoint later instead of building a queue now.
+Point a real scheduler at the HTTP endpoint later instead of building a queue now — which is exactly what Phase 2A's scheduler does, see below.
 
-## What remains for Phase 2
+## Scheduler (Phase 2A)
+
+`runScheduledSweep()` (`lib/jobs/scheduler.ts`) does, every time it's called — safe to call on any cadence, including twice in a row:
+
+1. **Recover stale jobs** — any `PROCESSING` job whose `started_at` is older than 15 minutes (`STALE_PROCESSING_THRESHOLD_MS` in `lib/jobs/policy.ts`) is treated as failed and flows into step 2.
+2. **Requeue retry-eligible failures** — a `FAILED` job with `retry_count < max_retries` (default 3, so 3 total attempts) whose `completed_at` is more than 5 minutes ago (`RETRY_COOLDOWN_MS`) goes back to `PENDING`. A job at `max_retries` is left permanently `FAILED` — no endless retries.
+3. **Enqueue due crawls** — for each `status='active'` website whose `next_crawl_at` has passed (or is `null`, i.e. never crawled), create a `CRAWL_WEBSITE` job, skipping any website that already has one `PENDING`/`PROCESSING` (the existing idempotency-key index handles this).
+4. **Drain the queue** — runs the bounded worker loop (up to 4 minutes / 30 iterations, `lib/jobs/policy.ts`), re-querying between jobs so a job chained mid-sweep (e.g. the audit created right after a crawl completes) gets processed in the same invocation when there's time left.
+5. **Record the run** — one `scheduler_runs` row with counts, visible at `/admin/automation`.
+
+### Running it
+
+- **Locally**: `npm run scheduler:run`, or the admin UI's **Run scheduler now** button at `/admin/automation`, or:
+  ```bash
+  curl -X POST http://localhost:3000/api/scheduler/run -H "Authorization: Bearer $CRON_SECRET"
+  ```
+- **On a schedule**: `.github/workflows/scheduler.yml` runs daily (`0 3 * * *`, plus manual `workflow_dispatch`) and calls the deployed endpoint. It needs two **GitHub Actions secrets** (repo Settings → Secrets and variables → Actions) — never committed:
+  - `SCHEDULER_URL` — e.g. `https://your-deployment.example.com/api/scheduler/run`
+  - `CRON_SECRET` — must match the `CRON_SECRET` env var on that deployment
+- **On Vercel** (if deployed there later): `/api/scheduler/run` needs no code changes — Vercel Cron sends `Authorization: Bearer $CRON_SECRET` natively, matching this endpoint's auth check exactly. Add a `vercel.json` cron entry pointing at the path.
+
+### Known gap (flagged, not fixed in this phase)
+
+All existing `/api/**` routes besides `/api/scheduler/run` are unauthenticated — `proxy.ts`'s Basic Auth only matches `/admin/:path*`. This predates Phase 2A; worth hardening in a follow-up (e.g. widening the proxy matcher, or adding the same bearer-secret pattern to the other trigger routes).
+
+## What remains for Phase 2B+
 
 - Real keyword-data provider (search volume, difficulty) — explicitly not built here; `keywords.intent`/`source` are ready to receive it.
 - Splitting `ANALYSE_WEBSITE` into its own richer step once keyword data exists.
-- A real worker/queue (BullMQ+Redis or similar) behind the same `jobs` table, replacing the fire-and-forget + manual-sweep approach.
-- Real scheduled jobs (daily Search Console sync, weekly crawl, weekly opportunity analysis, monthly reporting) — the `jobs` table and manual triggers are the seam; add a cron caller.
+- A real worker/queue (BullMQ+Redis or similar) behind the same `jobs` table — `lib/jobs/handlers/*` only depend on the `JobHandler` signature, so this replaces `processPendingJobs`'s loop without touching them.
+- Securing the remaining unauthenticated `/api/**` trigger routes (see "Known gap" above).
 - Search Console integration, ranking history, backlink/competitor data.
 - Client-facing auth (Supabase Auth sessions using the `memberships`/RLS already in place) instead of the shared `ADMIN_PASSWORD`.
-- Content briefs, content generation/publishing, client-facing reports, billing — all explicitly out of scope for Phase 1.
+- Content briefs, content generation/publishing, client-facing reports, billing — all explicitly out of scope so far.

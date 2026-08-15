@@ -1,0 +1,39 @@
+name: Scheduled sweep
+
+on:
+  schedule:
+    # Daily at 03:00 UTC. Not high-frequency — the sweep itself is idempotent
+    # and cheap when nothing is due (most invocations just do maintenance:
+    # stale-job recovery + retry-eligible requeueing), and actual crawls are
+    # gated per-website by websites.next_crawl_at (default weekly).
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run-scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call scheduler endpoint
+        run: |
+          set -e
+          if [ -z "$SCHEDULER_URL" ]; then
+            echo "SCHEDULER_URL secret is not set — see README 'Scheduler' section." >&2
+            exit 1
+          fi
+          RESP=$(curl -sS -w "\n%{http_code}" -X POST "$SCHEDULER_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json")
+          BODY=$(echo "$RESP" | sed '$d')
+          CODE=$(echo "$RESP" | tail -n1)
+          echo "HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" -ge 300 ]; then
+            echo "Scheduler call failed with HTTP $CODE" >&2
+            exit 1
+          fi
+        env:
+          # Repo Settings -> Secrets and variables -> Actions.
+          # SCHEDULER_URL: e.g. https://your-deployment.example.com/api/scheduler/run
+          # CRON_SECRET: must match the CRON_SECRET env var on the deployment.
+          SCHEDULER_URL: ${{ secrets.SCHEDULER_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
