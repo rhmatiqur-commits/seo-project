@@ -7,6 +7,8 @@ import {
   shouldEnqueueKeywordDiscovery,
   isDueForSearchConsoleSync,
   shouldEnqueueSearchConsoleSync,
+  isDueForSerpFetch,
+  shouldEnqueueSerpFetch,
   isStaleProcessing,
   isRetryEligible,
   getNextJobType,
@@ -99,6 +101,32 @@ test("shouldEnqueueSearchConsoleSync: due website with no active job -> enqueue"
   assert.equal(shouldEnqueueSearchConsoleSync({ status: "active", next_search_console_sync_at: null }, null, NOW), true);
 });
 
+// --- 5 & 6, SERP fetch variant: its own independent schedule (Phase 3) ---
+
+test("isDueForSerpFetch: active website with no next_serp_fetch_at is due (first-ever fetch)", () => {
+  assert.equal(isDueForSerpFetch({ status: "active", next_serp_fetch_at: null }, NOW), true);
+});
+
+test("isDueForSerpFetch: active website whose next_serp_fetch_at has passed is due", () => {
+  assert.equal(isDueForSerpFetch({ status: "active", next_serp_fetch_at: minutesAgo(5) }, NOW), true);
+});
+
+test("isDueForSerpFetch: active website whose next_serp_fetch_at is in the future is not due", () => {
+  assert.equal(isDueForSerpFetch({ status: "active", next_serp_fetch_at: minutesFromNow(5) }, NOW), false);
+});
+
+test("isDueForSerpFetch: paused website is never due", () => {
+  assert.equal(isDueForSerpFetch({ status: "paused", next_serp_fetch_at: minutesAgo(999) }, NOW), false);
+});
+
+test("shouldEnqueueSerpFetch: due website with an already-active fetch job -> do not enqueue", () => {
+  assert.equal(shouldEnqueueSerpFetch({ status: "active", next_serp_fetch_at: null }, { id: "existing" }, NOW), false);
+});
+
+test("shouldEnqueueSerpFetch: due website with no active job -> enqueue", () => {
+  assert.equal(shouldEnqueueSerpFetch({ status: "active", next_serp_fetch_at: null }, null, NOW), true);
+});
+
 // --- 4. Stale processing-job recovery ---
 
 test("isStaleProcessing: PROCESSING job started well past the threshold is stale", () => {
@@ -157,6 +185,12 @@ test("getNextJobType: KEYWORD_DISCOVERY is never auto-chained (its own independe
 test("getNextJobType: SEARCH_CONSOLE_SYNC -> ANALYSE_SEARCH_PERFORMANCE -> null (Phase 2D chaining)", () => {
   assert.equal(getNextJobType("SEARCH_CONSOLE_SYNC"), "ANALYSE_SEARCH_PERFORMANCE");
   assert.equal(getNextJobType("ANALYSE_SEARCH_PERFORMANCE"), null);
+});
+
+test("getNextJobType: FETCH_SERP_RESULTS -> ANALYSE_COMPETITORS -> ANALYSE_COMPETITOR_GAPS -> null (Phase 3 chaining)", () => {
+  assert.equal(getNextJobType("FETCH_SERP_RESULTS"), "ANALYSE_COMPETITORS");
+  assert.equal(getNextJobType("ANALYSE_COMPETITORS"), "ANALYSE_COMPETITOR_GAPS");
+  assert.equal(getNextJobType("ANALYSE_COMPETITOR_GAPS"), null);
 });
 
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---

@@ -40,6 +40,14 @@ pages + keywords + real GSC data → 7 deterministic detectors → transparent s
 
 Every number (position, impressions, clicks, CTR, period deltas, the opportunity score itself) is computed in TypeScript, never by the AI — AI is used only to explain *why* an already-detected, already-scored opportunity matters. This phase also closes a real security gap: `/api/**` was previously reachable with zero authentication (see `SECURITY_AUDIT.md`).
 
+**Phase 3** adds the first *external competitive* signal — real Google SERP data via DataForSEO:
+
+```
+high-priority keywords → real SERP results → classified/scored competitors → competitor page analysis → COMPETITOR_CONTENT_GAP / COMPETITOR_RANKING_GAP / SERP_FEATURE_OPPORTUNITY → seo_opportunities/seo_tasks
+```
+
+The 3 new detectors land in the *same* `search_performance_opportunities` table Phase 2D built — not a fourth, parallel opportunity system — and flow through the exact same scoring/AI-interpretation/promotion pipeline. DataForSEO sits behind a `SerpDataProvider` interface (mirroring `KeywordDataProvider`'s shape); a real `DataForSeoKeywordProvider` implementation also now fulfils the abstraction Phase 2B left ready for one.
+
 CV Central is the first test client, but nothing in the code is CV-Central-specific — it's seeded through the same `createOrganization`/`createWebsite` calls any client onboarding would use.
 
 ## Architecture
@@ -55,6 +63,7 @@ CV Central is the first test client, but nothing in the code is CV-Central-speci
 - **Search Console integration** (Phase 2C): `lib/search-console/*` — hand-rolled `fetch` wrappers around Google's OAuth and Search Console (Webmasters v3) REST endpoints (no `googleapis` dependency), a signed/expiring OAuth `state` param for the unauthenticated callback route, and a pure row-normalizer. `lib/jobs/handlers/search-console-sync.ts` refreshes the access token when needed and upserts real metrics. See the dedicated section below.
 - **SEO Decision Engine** (Phase 2D): `lib/search-performance/*` — 7 pure detector modules, a historical-comparison aggregator, a documented scoring formula, and a deterministic dedupe-key builder for idempotent upserts. `lib/jobs/handlers/analyse-search-performance.ts` orchestrates detection → scoring → an optional bounded AI-interpretation pass → promotion into `seo_opportunities`/`seo_tasks`. See the dedicated section below.
 - **API authorization** (Phase 2D): `proxy.ts`'s Basic Auth now also covers `/api/**` (previously `/admin/**` only); `lib/api/authorize.ts` guards against a client-supplied organization id being trusted over the resource's real owner. See `SECURITY_AUDIT.md` for the full audit and its honestly-documented limits.
+- **Competitor & SERP Intelligence** (Phase 3): `lib/dataforseo/client.ts` — one shared Basic-Auth HTTP client used by both `lib/serp/dataforseo-serp-provider.ts` (`SerpDataProvider`) and `lib/keywords/dataforseo-provider.ts` (`KeywordDataProvider`). `lib/serp/*` holds deterministic classification/scoring/aggregation/overlap modules; 3 new detectors reuse Phase 2D's exact pipeline (`lib/jobs/handlers/search-performance-shared.ts`, extracted from `analyse-search-performance.ts` in this phase so both jobs share one code path). See the dedicated section below.
 
 ```
 app/
@@ -63,21 +72,25 @@ app/
     websites/[id]/keywords/  Keyword Intelligence: stats, filters, run-discovery button
     websites/[id]/search-console/  Search Console: connect/site-picker, stats, metrics table
     websites/[id]/search-performance/  SEO Decision Engine: opportunities table, filters, status updates
+    websites/[id]/competitors/  Competitor & SERP Intelligence: competitors, SERPs, provider usage
   api/               JSON API route handlers (Basic-Auth-gated, Phase 2D — see SECURITY_AUDIT.md)
     scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint (excluded from Basic Auth)
     websites/[id]/keyword-discovery/  manual KEYWORD_DISCOVERY trigger
     websites/[id]/search-console-sync/  manual SEARCH_CONSOLE_SYNC trigger
     websites/[id]/search-performance-analysis/  manual ANALYSE_SEARCH_PERFORMANCE trigger
+    websites/[id]/serp-fetch/  manual FETCH_SERP_RESULTS trigger
     auth/google-search-console/start|callback/  OAuth flow (callback excluded from Basic Auth by necessity; state-signed)
 lib/
   supabase/          server-side client + generated Database types
-  crawler/            crawl engine
+  crawler/            crawl engine (fetchWithRedirects exported for reuse by competitor-page fetching)
   audit/               technical SEO rules + engine
   ai/                    provider abstraction, schemas, prompts, analysis service
   jobs/                 job runner, scheduler, pure policy/decision functions, per-job-type handlers
-  keywords/              keyword provider abstraction + pure normalize/match/score/merge modules
+  keywords/              keyword provider abstraction (Null + DataForSEO) + pure normalize/match/score/merge modules
   search-console/        OAuth/API clients, signed state param, pure row-normalizer
-  search-performance/    7 pure detectors, comparison/scoring/dedupe-key modules (Phase 2D)
+  search-performance/    10 pure detectors (7 Phase 2D + 3 Phase 3), comparison/scoring/dedupe-key modules
+  serp/                  SerpDataProvider abstraction, classification/scoring/aggregation/overlap/priority-tier modules (Phase 3)
+  dataforseo/            shared low-level HTTP client used by both the SERP and keyword DataForSEO providers
   api/                   lib/api/authorize.ts (IDOR guard), lib/api/respond.ts (route helpers)
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
@@ -87,10 +100,10 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 
 ## Database schema
 
-22 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0011_search_performance.sql`) for the full source of truth.
+27 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0014_competitor_intelligence.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
-- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and three **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), and `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C). `status='active'` doubles as the "eligible for scheduling" flag for all three; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) has no schedule column of its own — it chains after a completed `SEARCH_CONSOLE_SYNC` instead (see "Scheduler" below).
+- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and four **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), and `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all four; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below).
 - **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by every schedule.
 - **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error (keyword-discovery counts live in the `summary` jsonb column). Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
 - **website_pages** — one row per crawled URL: status, title, meta description, H1, headings (jsonb), word count, canonical, noindex, structured-data types, image/link counts, orphan flag, redirect chain (jsonb).
@@ -102,8 +115,13 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 - **keyword_opportunities** (Phase 2B) — one row per (website, keyword): AI-derived 1-5 scores, computed `opportunity_score`, `recommended_action`, `reasoning`, and a `seo_opportunity_id` back-reference once promoted into the task system (null until then).
 - **search_console_connections** (Phase 2C) — one row per website (`unique(website_id)`): OAuth `refresh_token`/`access_token`/expiry, the chosen `site_url` (null until the site-picker step), `status` (`pending_site_selection`/`active`/`error`), `last_sync_error`. Tokens are plaintext columns, service-role-only access — same trust model already used for API keys as env vars; field-level encryption is a flagged future hardening.
 - **search_console_metrics** (Phase 2C) — actual Google data only: `date`/`query`/`page_url`/`clicks`/`impressions`/`ctr`/`position`, unique on `(website_id, date, query, page_url)` so re-syncing overlapping date ranges never duplicates rows.
-- **search_performance_opportunities** (Phase 2D) — one row per (website, detector, subject): `detector_type` (7 values), nullable `keyword_id`/`page_id`/`related_page_id`, a `signals` jsonb snapshot of exactly the measured/deterministic inputs the score was computed from, `opportunity_score`, `recommended_action`, deterministic `reasoning`, optional `ai_rationale`/`ai_risk_notes`/`ai_analysed_at`, and a `seo_opportunity_id` back-reference once promoted. Idempotency is via a deterministic `dedupe_key` (unique per website), not a multi-column constraint — see "SEO Decision Engine" below for why.
-- **competitors** — manual entry only; no scraping.
+- **search_performance_opportunities** (Phase 2D, extended in Phase 3) — one row per (website, detector, subject): `detector_type` (10 values — 7 from Phase 2D, 3 competitor-sourced from Phase 3), nullable `keyword_id`/`page_id`/`related_page_id`, a `signals` jsonb snapshot of exactly the measured/deterministic inputs the score was computed from, `opportunity_score`, `recommended_action`, deterministic `reasoning`, optional `ai_rationale`/`ai_risk_notes`/`ai_analysed_at`, and a `seo_opportunity_id` back-reference once promoted. Idempotency is via a deterministic `dedupe_key` (unique per website), not a multi-column constraint — see "SEO Decision Engine" below for why.
+- **serp_runs** (Phase 3) — one row per (keyword, location, point-in-time) SERP request: `keyword`/`location`/`country`/`language`/`search_engine`, `status` (reuses the `job_status` enum), `features` jsonb (local pack/featured snippet/FAQ/etc for that SERP), `raw_response` jsonb (debugging only, no retention job yet — flagged). A time series, not deduped by constraint — "avoid duplicate runs" is an application-logic concern (`lib/serp/priority-tier.ts`'s per-keyword due-check), not a DB rule, since historical runs are the whole point (ranking-gap detection needs them).
+- **serp_results** (Phase 3) — one row per ranked item within a `serp_run`: `position`/`domain`/`url`/`title`/`description`/`result_type` (kept as free text — DataForSEO's own evolving vocabulary, not ours) /`is_client_domain`.
+- **competitor_domains** (Phase 3) — one row per (website, domain), aggregated/classified/scored from `serp_results`: `classification` (`DIRECT_COMPETITOR`/`DIRECTORY`/`MARKETPLACE`/`INFORMATIONAL`/`OTHER`/`UNKNOWN`), `appearances`, `average_position`, `relevant_keyword_count`, `relevance_score`. `unique(website_id, domain)` prevents duplicates.
+- **competitor_pages** (Phase 3) — structured metadata only for selected high-value competitor pages (title/meta/H1/headings/word count/structured-data types/a simple deterministic `major_topics` extraction) — **never body text or raw HTML**, competitive analysis not content reproduction. `unique(competitor_domain_id, url)`.
+- **provider_usage** (Phase 3) — the foundation for future cost tracking: provider/operation/units/`estimated_cost_usd` (from a documented published-rate constant, never a fabricated precise figure) per organization/website. Not a billing system.
+- **competitors** — manual entry only; no scraping (Phase 1 — distinct from the Phase 3 `competitor_domains`/`competitor_pages`, which are auto-populated from real SERP data).
 - **seo_opportunities** — recommendations (`CREATE_NEW_PAGE` / `OPTIMISE_EXISTING_PAGE` / `TECHNICAL_FIX` / `INTERNAL_LINKING` / `RESEARCH_REQUIRED`, plus Phase 2D's `IMPROVE_CTR` / `INVESTIGATE_DECLINE` / `INVESTIGATE_OPPORTUNITY` / `IMPROVE_INTERNAL_LINKING`), with `priority_score` + `priority_components` and an `ai_job_id` back-reference. Populated by Phase 1's page-level AI analysis, Phase 2B's keyword-opportunity promotion, and Phase 2D's search-performance-opportunity promotion — one system, three feeders.
 - **opportunity_keywords** — join table (Phase 1), reused as-is by Phase 2B to link a promoted keyword to its `seo_opportunities` row.
 - **seo_tasks** — one task per stored opportunity (also usable standalone later), with its own status lifecycle.
@@ -129,6 +147,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `CRAWLER_USER_AGENT` | Optional override; defaults to `SEOPlatformBot/0.1 (+https://example.com/bot)` |
 | `CRON_SECRET` | Any long random value (e.g. `openssl rand -hex 32`) — gates `/api/scheduler/run`. Matches Vercel Cron's own convention. |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Optional — only needed for the Search Console integration (Phase 2C). See "Search Console integration" below for how to create these in Google Cloud Console. Everything else works with zero GSC setup. |
+| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Optional — only needed for the Competitor & SERP Intelligence integration (Phase 3). Your DataForSEO account login/password. See "Competitor & SERP Intelligence" below. Everything else works with zero DataForSEO setup. |
 
 ## Local development
 
@@ -136,7 +155,7 @@ Copy `.env.example` to `.env.local` and fill in:
 npm install
 npm run dev       # http://localhost:3000 (admin at /admin, prompts for ADMIN_PASSWORD via Basic Auth)
 npm run typecheck
-npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword/search-console/search-performance modules, API authorization guard (node:test)
+npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword/search-console/search-performance/serp/dataforseo modules, API authorization guard (node:test)
 ```
 
 ## Supabase setup
@@ -210,8 +229,8 @@ Point a real scheduler at the HTTP endpoint later instead of building a queue no
 
 1. **Recover stale jobs** — any `PROCESSING` job whose `started_at` is older than 15 minutes (`STALE_PROCESSING_THRESHOLD_MS` in `lib/jobs/policy.ts`) is treated as failed and flows into step 2.
 2. **Requeue retry-eligible failures** — a `FAILED` job with `retry_count < max_retries` (default 3, so 3 total attempts) whose `completed_at` is more than 5 minutes ago (`RETRY_COOLDOWN_MS`) goes back to `PENDING`. A job at `max_retries` is left permanently `FAILED` — no endless retries.
-3. **Enqueue due jobs** — for each `status='active'` website whose relevant `next_*_at` has passed (or is `null`), create the corresponding job, skipping any website that already has one `PENDING`/`PROCESSING` (the existing idempotency-key index handles this): `CRAWL_WEBSITE`, `KEYWORD_DISCOVERY` (Phase 2B), and `SEARCH_CONSOLE_SYNC` (Phase 2C, scoped to only websites with an `active` `search_console_connections` row).
-4. **Drain the queue** — runs the bounded worker loop (up to 4 minutes / 30 iterations, `lib/jobs/policy.ts`), re-querying between jobs so a job chained mid-sweep gets processed in the same invocation when there's time left. Chaining now includes `SEARCH_CONSOLE_SYNC → ANALYSE_SEARCH_PERFORMANCE` (Phase 2D, `getNextJobType`) alongside the existing `CRAWL_WEBSITE → RUN_SEO_AUDIT → GENERATE_SEO_OPPORTUNITIES` chain — a completed sync automatically triggers analysis, same mechanism, no new scheduler phase needed.
+3. **Enqueue due jobs** — for each `status='active'` website whose relevant `next_*_at` has passed (or is `null`), create the corresponding job, skipping any website that already has one `PENDING`/`PROCESSING` (the existing idempotency-key index handles this): `CRAWL_WEBSITE`, `KEYWORD_DISCOVERY` (Phase 2B), `SEARCH_CONSOLE_SYNC` (Phase 2C, scoped to only websites with an `active` `search_console_connections` row), and `FETCH_SERP_RESULTS` (Phase 3, no connection prerequisite — the SERP provider needs no per-website OAuth).
+4. **Drain the queue** — runs the bounded worker loop (up to 4 minutes / 30 iterations, `lib/jobs/policy.ts`), re-querying between jobs so a job chained mid-sweep gets processed in the same invocation when there's time left. Chaining: `CRAWL_WEBSITE → RUN_SEO_AUDIT → GENERATE_SEO_OPPORTUNITIES`, `SEARCH_CONSOLE_SYNC → ANALYSE_SEARCH_PERFORMANCE` (Phase 2D), and `FETCH_SERP_RESULTS → ANALYSE_COMPETITORS → ANALYSE_COMPETITOR_GAPS` (Phase 3) — each completed job in a chain automatically triggers its successor, same `getNextJobType` mechanism, no new scheduler phase needed per chain link.
 5. **Record the run** — one `scheduler_runs` row with counts, visible at `/admin/automation`.
 
 ### Running it
@@ -248,7 +267,9 @@ Adds keyword storage, existing-page matching, and opportunity scoring per websit
 
 ### Configuring a real keyword provider
 
-1. Implement `KeywordDataProvider` in a new file (e.g. `lib/keywords/dataforseo-provider.ts`), calling the real API and mapping its response onto `KeywordMetricsResult`/`KeywordSuggestion` — never inventing a field the API didn't return.
+As of Phase 3, `lib/keywords/dataforseo-provider.ts` is a real `KeywordDataProvider` implementation — set `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` (see "Competitor & SERP Intelligence" below) and `lib/keywords/get-provider.ts` picks it automatically; no code change needed. To add a *different* provider instead:
+
+1. Implement `KeywordDataProvider` in a new file, calling the real API and mapping its response onto `KeywordMetricsResult`/`KeywordSuggestion` — never inventing a field the API didn't return.
 2. Wire it into `lib/keywords/get-provider.ts` (same pattern as `lib/ai/get-provider.ts`'s `AI_PROVIDER` switch).
 3. Nothing else changes — `lib/jobs/handlers/keyword-discovery.ts` only depends on the `KeywordDataProvider` interface.
 
@@ -345,12 +366,87 @@ curl -X POST http://localhost:3000/api/websites/<website-id>/search-performance-
 
 Best results after a crawl + keyword discovery + at least one Search Console sync (the GSC-dependent detectors need synced data; `CONTENT_GAP`/`INTERNAL_LINK_OPPORTUNITY` work from crawl/keyword data alone). Results appear on the same page, filterable by type/action/status/score, each row showing its measured signals, deterministic reasoning, and (once analysed) AI rationale. Re-run analysis twice to confirm no duplicate opportunities or tasks.
 
-## What remains for Phase 2E+
+## Competitor & SERP Intelligence (Phase 3)
 
-- A real `KeywordDataProvider` implementation (search volume/CPC/competition/difficulty) — the abstraction and schema are ready to receive one; see "Configuring a real keyword provider" above.
-- Feeding real Search Console position/clicks into `keyword_opportunities.difficulty_score`, replacing the AI-estimated placeholder now that real ranking data exists.
-- Splitting `ANALYSE_WEBSITE` into its own richer step once real keyword data exists.
+The platform's first *external competitive* signal: who else ranks for the client's important keywords, via DataForSEO's SERP API, feeding the *existing* SEO Decision Engine (Phase 2D) rather than a fourth parallel opportunity system.
+
+### Provider abstraction
+
+- **`lib/dataforseo/client.ts`** — one shared, hand-rolled `fetch` client (Basic Auth, DataForSEO's task-envelope unwrapping, best-effort error classification via `mapDataForSeoError`) used by both providers below. No SDK, same philosophy as the crawler and Search Console client.
+- **`SerpDataProvider`** (`lib/serp/provider.ts`/`get-provider.ts`, mirrors `KeywordDataProvider`'s shape exactly): a single `getSerpResults(keyword, opts)` method — deliberately not three separate methods for "results"/"ranked results"/"competitors," since those are pure deterministic *derivations* of one SERP fetch, not separate provider round-trips (keeps DataForSEO credit usage to one call per keyword). `DataForSeoSerpProvider` is the real implementation; `NullSerpProvider` (the default with no credentials) honestly returns nothing.
+- **`KeywordDataProvider`** now also has a real implementation: `lib/keywords/dataforseo-provider.ts`, wired into the existing Phase 2B factory with zero interface changes.
+
+### SERP collection — `FETCH_SERP_RESULTS`
+
+Selects up to `MAX_KEYWORDS_PER_SERP_FETCH_RUN` (10) *due* keywords per run — not every keyword indiscriminately. Each keyword gets a priority tier (`lib/serp/priority-tier.ts`'s `getSerpPriorityTier`) from existing signals (a matched `keyword_opportunities.opportunity_score`, an existing `PAGE_TWO_OPPORTUNITY` row, recent GSC impressions):
+
+| Tier | Qualifying signal | Refetch cadence |
+|---|---|---|
+| HIGH | score ≥ 8, or a page-two opportunity exists, or ≥ 500 recent impressions | 7 days |
+| MEDIUM | score ≥ 4, or ≥ 100 recent impressions | 14 days |
+| LOW | none of the above | 30 days |
+
+`isKeywordDueForSerpFetch` checks each keyword's own tier window against its last successful `serp_run` — the actual "avoid duplicate SERP runs" mechanism (a website-level `next_serp_fetch_at`/`serp_fetch_frequency_days` schedule just decides when the job itself runs; per-keyword tiering happens inside it). Results are stored in `serp_runs`/`serp_results`, the client's own domain is flagged (`lib/serp/client-domain.ts`), and `location`/`country`/`language` are stored per request — **local SEO isn't globally interchangeable**; set a website's `default_serp_location` on the Competitors admin page. Per-keyword provider failures are soft (logged to that keyword's `serp_run`, the batch continues); the job only fails outright (flowing into the existing retry policy) if every attempted keyword failed.
+
+### Competitor identification — `ANALYSE_COMPETITORS`
+
+Deterministic, not AI, per spec: `lib/serp/classify-domain.ts` pattern-matches known Google-property/directory/marketplace/social/informational domains to an immediate classification (`DIRECTORY`/`MARKETPLACE`/`INFORMATIONAL`/`OTHER`); anything else starts `UNKNOWN` and only becomes `DIRECT_COMPETITOR` once it's appeared for at least `MIN_APPEARANCES_FOR_DIRECT_COMPETITOR` (2) distinct keywords — "repeatedly appears... and is not the client's own domain," per spec. `lib/serp/aggregate-competitors.ts` reduces raw `serp_results` into one row per domain (appearances, average position, relevant-keyword count) and computes the score below. AI enrichment of the remaining `UNKNOWN`/`OTHER` domains is a documented future step, not built now.
+
+Then fetches+analyzes up to `MAX_COMPETITOR_PAGES_PER_RUN` (10) of the most relevant `DIRECT_COMPETITOR` pages — never every competitor URL automatically. `lib/serp/fetch-competitor-page.ts` reuses the crawler's own `fetchWithRedirects`/`parseHtml`/robots-respecting logic (not a second crawler) and stores **structured metadata only** (`competitor_pages`: title/meta/H1/headings/word count/structured-data types/a simple deterministic `major_topics` word-frequency extraction) — **never body text or raw HTML**. Competitive analysis, not content reproduction.
+
+### Competitor relevance score
+
+`lib/serp/competitor-scoring.ts`, documented formula, explicitly **not** Google's authority/domain-rating score:
+
+```
+score = relevantKeywordSignal × 1.2 + positionStrength × 1.3 + appearanceFrequency × 1.0 + commercialCoverage × 1.1 + targetOverlap × 1.4
+```
+
+All five inputs are deterministically derived 1-5 values (log-scaled counts, inverse-scaled position, ratios) — an internal competitive-relevance score for prioritising which competitors matter, nothing more.
+
+### Gap detection — `ANALYSE_COMPETITOR_GAPS`
+
+Three more `detector_type` values in the *existing* `search_performance_opportunities` table (Phase 2D), same `SearchPerformanceCandidate` shape as the other 7:
+
+| Detector | Signal | Recommended action |
+|---|---|---|
+| `COMPETITOR_CONTENT_GAP` | A `DIRECT_COMPETITOR` ranks well (top 10) for a keyword the client has no adequate page for | `CREATE_NEW_PAGE` |
+| `COMPETITOR_RANKING_GAP` | Both rank, but the competitor substantially outranks the client (≥ 5 positions, `DIRECT_COMPETITOR` only — directories/marketplaces/etc. are excluded from ranking comparisons) | `OPTIMISE_EXISTING_PAGE` |
+| `SERP_FEATURE_OPPORTUNITY` | A high-priority keyword's SERP includes a feature (featured snippet/local pack/FAQ) the client doesn't hold | `IMPROVE_CTR` |
+
+Never assumes copying competitor content will improve rankings — the deterministic `reasoning` states the measured fact only (positions, evidence), and the optional AI-interpretation pass (same bounded, additive, no-invented-numbers pass Phase 2D built) is what may suggest a content direction, explicitly instructed not to claim a guaranteed outcome and to flag possible keyword cannibalisation.
+
+**Pipeline extraction**: `lib/jobs/handlers/search-performance-shared.ts` (`upsertSearchPerformanceCandidates`/`runAiInterpretationPass`/`promoteSearchPerformanceOpportunities`) was pulled out of `analyse-search-performance.ts` in this phase so `analyse-competitor-gaps.ts` uses the *exact same* scoring/AI/promotion code path — verified by re-running Phase 2D's existing test suite unchanged after the refactor.
+
+### Cost control
+
+- Keyword prioritisation + per-tier refetch cadence (above) — no indiscriminate SERP collection.
+- `MAX_COMPETITOR_RESULTS_CONSIDERED_PER_KEYWORD` (10) and `MAX_COMPETITOR_PAGES_PER_RUN` (10) bound per-run work.
+- `provider_usage` logs every DataForSEO call (provider/operation/units/`estimated_cost_usd` — from a documented published-rate constant, `DATAFORSEO_SERP_COST_ESTIMATE_USD`, never a fabricated precise figure) — the foundation for a future cost dashboard, visible on the Competitors admin page ("Provider usage, last 30 days").
+
+### Setting up DataForSEO credentials
+
+1. Create an account at [DataForSEO](https://dataforseo.com/) (has a free trial with credits).
+2. Add `DATAFORSEO_LOGIN` (your account email) and `DATAFORSEO_PASSWORD` to `.env.local`.
+3. Nothing else needed — both providers pick this up automatically via their factories.
+
+### Testing the integration
+
+Via the admin UI: open a website's Competitors page (`/admin/websites/[id]/competitors`), optionally set a **Default SERP location**, and click **Fetch SERP results** — this chains automatically through competitor analysis and gap detection. Via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/websites/<website-id>/serp-fetch -u admin:$ADMIN_PASSWORD
+```
+
+Results appear on the Competitors page (competitors table, recent SERPs, provider usage) and, for content/ranking/SERP-feature gaps, on the existing [SEO Decision Engine page](#seo-decision-engine-phase-2d) filtered to the 3 new detector types. Re-run the whole chain twice to confirm no duplicate `serp_runs`/`competitor_domains`/opportunities/tasks.
+
+## What remains for Phase 4+
+
+- Feeding real Search Console/SERP position data into `keyword_opportunities.difficulty_score`, replacing the AI-estimated placeholder now that real ranking data exists from two sources.
+- Splitting `ANALYSE_WEBSITE` into its own richer step now that real keyword and competitor data exist.
 - A real worker/queue (BullMQ+Redis or similar) behind the same `jobs` table — `lib/jobs/handlers/*` only depend on the `JobHandler` signature, so this replaces `processPendingJobs`'s loop without touching them.
 - Real per-tenant authorization — `/api/**` now requires the shared operator `ADMIN_PASSWORD`, but there's still no per-client isolation (see `SECURITY_AUDIT.md`'s "Deferred" section) until Supabase Auth sessions + `memberships`-scoped access replace the service-role-key-everywhere model.
-- Ranking history, backlink intelligence, competitor scraping.
-- Content briefs, automatic content generation/publishing, client-facing reports, billing — all explicitly out of scope so far.
+- AI enrichment of `UNKNOWN`/`OTHER`-classified competitor domains (the deterministic classifier is intentionally conservative — see "Competitor identification" above).
+- A `raw_response`/SERP-payload retention/cleanup job (currently kept indefinitely, flagged as a follow-up).
+- Backlink intelligence, ranking history trends/alerts beyond the current comparison windows, deeper competitor content analysis (topic clustering, content briefs).
+- Content briefs, automatic content generation/publishing, backlink campaigns, autonomous outreach, client-facing reports, billing, full client-authentication redesign — all explicitly out of scope so far.

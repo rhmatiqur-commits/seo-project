@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createOrganization } from "@/lib/db/organizations";
-import { createWebsite, getWebsite } from "@/lib/db/websites";
+import { createWebsite, getWebsite, updateWebsite } from "@/lib/db/websites";
 import { updateTaskStatus } from "@/lib/db/tasks";
 import { triggerJob } from "@/lib/jobs/trigger";
 import { processPendingJobs } from "@/lib/jobs/runner";
@@ -49,7 +49,14 @@ export async function createWebsiteAction(formData: FormData): Promise<void> {
 async function triggerAndReturn(
   websiteId: string,
   organizationIdHint: string,
-  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY" | "SEARCH_CONSOLE_SYNC" | "ANALYSE_SEARCH_PERFORMANCE"
+  jobType:
+    | "CRAWL_WEBSITE"
+    | "RUN_SEO_AUDIT"
+    | "GENERATE_SEO_OPPORTUNITIES"
+    | "KEYWORD_DISCOVERY"
+    | "SEARCH_CONSOLE_SYNC"
+    | "ANALYSE_SEARCH_PERFORMANCE"
+    | "FETCH_SERP_RESULTS"
 ) {
   const website = await getWebsite(websiteId);
   const organizationId = assertWebsiteBelongsToOrganization(website, organizationIdHint, websiteId);
@@ -64,6 +71,7 @@ async function triggerAndReturn(
   revalidatePath(`/admin/websites/${websiteId}/keywords`);
   revalidatePath(`/admin/websites/${websiteId}/search-console`);
   revalidatePath(`/admin/websites/${websiteId}/search-performance`);
+  revalidatePath(`/admin/websites/${websiteId}/competitors`);
 }
 
 export async function triggerCrawlAction(formData: FormData): Promise<void> {
@@ -106,6 +114,24 @@ export async function triggerSearchPerformanceAnalysisAction(formData: FormData)
   const organizationId = String(formData.get("organization_id"));
   await triggerAndReturn(websiteId, organizationId, "ANALYSE_SEARCH_PERFORMANCE");
   redirect(`/admin/websites/${websiteId}/search-performance`);
+}
+
+export async function triggerSerpFetchAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  await triggerAndReturn(websiteId, organizationId, "FETCH_SERP_RESULTS");
+  redirect(`/admin/websites/${websiteId}/competitors`);
+}
+
+/** Sets the free-text SERP location used for this website's future SERP
+ * requests (e.g. "Coventry,England,United Kingdom") — local SEO matters,
+ * results are not globally interchangeable. */
+export async function updateSerpLocationAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const location = String(formData.get("default_serp_location") ?? "").trim();
+  await updateWebsite(websiteId, { default_serp_location: location || null });
+  revalidatePath(`/admin/websites/${websiteId}/competitors`);
+  redirect(`/admin/websites/${websiteId}/competitors`);
 }
 
 export async function updateSearchPerformanceOpportunityStatusAction(formData: FormData): Promise<void> {

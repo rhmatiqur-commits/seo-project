@@ -3,7 +3,7 @@ import { listActiveWebsites } from "@/lib/db/websites";
 import { listActiveWebsitesWithSearchConsoleConnection } from "@/lib/db/search-console";
 import { createSchedulerRun, completeSchedulerRun } from "@/lib/db/scheduler-runs";
 import { processPendingJobs } from "@/lib/jobs/runner";
-import { shouldEnqueueWebsiteCrawl, shouldEnqueueKeywordDiscovery, shouldEnqueueSearchConsoleSync } from "@/lib/jobs/policy";
+import { shouldEnqueueWebsiteCrawl, shouldEnqueueKeywordDiscovery, shouldEnqueueSearchConsoleSync, shouldEnqueueSerpFetch } from "@/lib/jobs/policy";
 
 export interface SchedulerSummary {
   schedulerRunId: string;
@@ -14,6 +14,8 @@ export interface SchedulerSummary {
   keywordDiscoveryJobsSkippedDuplicate: number;
   searchConsoleSyncJobsCreated: number;
   searchConsoleSyncJobsSkippedDuplicate: number;
+  serpFetchJobsCreated: number;
+  serpFetchJobsSkippedDuplicate: number;
   staleRecovered: number;
   jobsRetried: number;
   worker: { processed: number; completed: number; failed: number; iterations: number; stoppedReason: string };
@@ -136,6 +138,34 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       }
     }
 
+    // 3d. Same due-check-and-enqueue for FETCH_SERP_RESULTS (Phase 3), on its
+    // own independent per-website schedule (next_serp_fetch_at /
+    // serp_fetch_frequency_days) — not scoped to a connection prerequisite
+    // like Search Console sync (the SERP provider needs no per-website
+    // OAuth); per-keyword tiered cadence is handled inside the job itself.
+    let serpFetchJobsCreated = 0;
+    let serpFetchJobsSkippedDuplicate = 0;
+    for (const website of websites) {
+      const existingActiveSerpJob = await findActiveJob(website.id, "FETCH_SERP_RESULTS");
+      if (!shouldEnqueueSerpFetch(website, existingActiveSerpJob, now)) {
+        if (existingActiveSerpJob) serpFetchJobsSkippedDuplicate++;
+        continue;
+      }
+      console.log(`[scheduler] website ${website.id} (${website.name}) is due for SERP fetch`);
+      const { created } = await createJob({
+        organization_id: website.organization_id,
+        website_id: website.id,
+        job_type: "FETCH_SERP_RESULTS",
+        idempotency_key: `FETCH_SERP_RESULTS:${website.id}`,
+      });
+      if (created) {
+        serpFetchJobsCreated++;
+        console.log(`[scheduler] created FETCH_SERP_RESULTS job for ${website.id}`);
+      } else {
+        serpFetchJobsSkippedDuplicate++;
+      }
+    }
+
     // 4. Explicitly process the queue within this invocation (bounded), so
     // the pipeline advances as far as it can before returning — see
     // lib/jobs/runner.ts processPendingJobs and lib/jobs/policy.ts for the budget.
@@ -164,12 +194,14 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
           searchConsoleWebsitesChecked: searchConsoleWebsites.length,
           searchConsoleSyncJobsCreated,
           searchConsoleSyncJobsSkippedDuplicate,
+          serpFetchJobsCreated,
+          serpFetchJobsSkippedDuplicate,
         },
       }
     );
 
     console.log(
-      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
+      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} serpFetchCreated=${serpFetchJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
     );
 
     return {
@@ -181,6 +213,8 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       keywordDiscoveryJobsSkippedDuplicate,
       searchConsoleSyncJobsCreated,
       searchConsoleSyncJobsSkippedDuplicate,
+      serpFetchJobsCreated,
+      serpFetchJobsSkippedDuplicate,
       staleRecovered: stale.length,
       jobsRetried: retryable.length,
       worker,

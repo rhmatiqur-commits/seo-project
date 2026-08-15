@@ -23,7 +23,7 @@ interface QueueItem {
   depth: number;
 }
 
-interface FetchResult {
+export interface FetchResult {
   finalUrl: string;
   status: number;
   redirectChain: RedirectHop[];
@@ -32,7 +32,10 @@ interface FetchResult {
   noindexHeader: boolean;
 }
 
-async function fetchWithRedirects(startUrl: string): Promise<FetchResult> {
+/** Exported (not just used internally by crawlWebsite) so single-URL
+ * fetchers — e.g. lib/serp/fetch-competitor-page.ts — reuse the exact same
+ * fetch/redirect/timeout/user-agent logic instead of a second copy. */
+export async function fetchWithRedirects(startUrl: string): Promise<FetchResult> {
   const chain: RedirectHop[] = [];
   let currentUrl = startUrl;
 

@@ -94,6 +94,26 @@ export function shouldEnqueueSearchConsoleSync(
   return isDueForSearchConsoleSync(website, now) && existingActiveJob === null;
 }
 
+export interface SerpFetchScheduleInfo {
+  status: "active" | "paused" | "archived";
+  next_serp_fetch_at: string | null;
+}
+
+/** Mirrors isDueForCrawl/isDueForKeywordDiscovery/isDueForSearchConsoleSync,
+ * but against the SERP-fetch cadence (websites.next_serp_fetch_at/
+ * serp_fetch_frequency_days) — its own independent recurring schedule at the
+ * website level. Per-keyword tiered cadence (HIGH/MEDIUM/LOW) is a separate,
+ * finer-grained concern handled entirely in lib/serp/priority-tier.ts. */
+export function isDueForSerpFetch(website: SerpFetchScheduleInfo, now: Date): boolean {
+  if (website.status !== "active") return false;
+  if (!website.next_serp_fetch_at) return true;
+  return new Date(website.next_serp_fetch_at).getTime() <= now.getTime();
+}
+
+export function shouldEnqueueSerpFetch(website: SerpFetchScheduleInfo, existingActiveJob: unknown | null, now: Date): boolean {
+  return isDueForSerpFetch(website, now) && existingActiveJob === null;
+}
+
 export interface StaleCheckJob {
   status: JobStatus;
   started_at: string | null;
@@ -154,6 +174,19 @@ export function getNextJobType(jobType: JobType): JobType | null {
       // Terminal, and — like ANALYSE_WEBSITE — also independently, manually
       // triggerable (e.g. for a website with no Search Console connection at
       // all; CONTENT_GAP/INTERNAL_LINK_OPPORTUNITY don't need one).
+      return null;
+    case "FETCH_SERP_RESULTS":
+      // Its own recurring schedule (see isDueForSerpFetch above) for *when a
+      // fetch starts*, but a completed fetch chains tightly into competitor
+      // analysis (Phase 3) — mirrors CRAWL_WEBSITE -> RUN_SEO_AUDIT.
+      return "ANALYSE_COMPETITORS";
+    case "ANALYSE_COMPETITORS":
+      return "ANALYSE_COMPETITOR_GAPS";
+    case "ANALYSE_COMPETITOR_GAPS":
+      // Terminal — runs its own AI-interpretation/promotion pass (see
+      // lib/jobs/handlers/search-performance-shared.ts) rather than chaining
+      // into ANALYSE_SEARCH_PERFORMANCE, which would needlessly redo the 7
+      // existing detectors on every competitor-gap run.
       return null;
     default:
       return null;

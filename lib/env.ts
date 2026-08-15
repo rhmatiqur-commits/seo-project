@@ -36,6 +36,14 @@ const envSchema = z
     // other feature keeps working with zero GSC setup.
     GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+
+    // DataForSEO SERP/keyword provider (Phase 3) — opt-in, not required at
+    // boot, same pattern as the Google OAuth vars above. Without these,
+    // getSerpProvider()/the keyword-provider factory fall back to null
+    // implementations that honestly return nothing; every other feature
+    // keeps working with zero DataForSEO setup.
+    DATAFORSEO_LOGIN: z.string().min(1).optional(),
+    DATAFORSEO_PASSWORD: z.string().min(1).optional(),
   })
   .refine((val) => (val.AI_PROVIDER === "anthropic" ? Boolean(val.ANTHROPIC_API_KEY) : Boolean(val.OPENAI_API_KEY)), {
     message: "Set ANTHROPIC_API_KEY (when AI_PROVIDER=anthropic) or OPENAI_API_KEY (when AI_PROVIDER=openai).",

@@ -92,6 +92,9 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
         <Link className="btn secondary" href={`/admin/websites/${website.id}/search-performance`}>
           SEO Decision Engine &rarr;
         </Link>
+        <Link className="btn secondary" href={`/admin/websites/${website.id}/competitors`}>
+          Competitors &rarr;
+        </Link>
       </p>
 
       <h2>Recent jobs</h2>

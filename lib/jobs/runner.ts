@@ -5,6 +5,9 @@ import { handleGenerateSeoOpportunities } from "@/lib/jobs/handlers/opportunitie
 import { handleKeywordDiscovery } from "@/lib/jobs/handlers/keyword-discovery";
 import { handleSearchConsoleSync } from "@/lib/jobs/handlers/search-console-sync";
 import { handleAnalyseSearchPerformance } from "@/lib/jobs/handlers/analyse-search-performance";
+import { handleFetchSerpResults } from "@/lib/jobs/handlers/fetch-serp-results";
+import { handleAnalyseCompetitors } from "@/lib/jobs/handlers/analyse-competitors";
+import { handleAnalyseCompetitorGaps } from "@/lib/jobs/handlers/analyse-competitor-gaps";
 import { getNextJobType, shouldAdvancePipeline, WORKER_LOOP_MAX_DURATION_MS, WORKER_LOOP_MAX_ITERATIONS } from "@/lib/jobs/policy";
 import type { JobHandler, JobRow } from "@/lib/jobs/types";
 import type { JobType } from "@/lib/supabase/types";
@@ -17,6 +20,9 @@ const HANDLERS: Record<JobType, JobHandler> = {
   KEYWORD_DISCOVERY: handleKeywordDiscovery,
   SEARCH_CONSOLE_SYNC: handleSearchConsoleSync,
   ANALYSE_SEARCH_PERFORMANCE: handleAnalyseSearchPerformance,
+  FETCH_SERP_RESULTS: handleFetchSerpResults,
+  ANALYSE_COMPETITORS: handleAnalyseCompetitors,
+  ANALYSE_COMPETITOR_GAPS: handleAnalyseCompetitorGaps,
 };
 
 /**
