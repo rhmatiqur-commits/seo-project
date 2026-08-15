@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_KEYWORDS_PER_DISCOVERY_RUN } from "@/lib/keywords/limits";
 
 /**
  * Structured output contract for the SEO opportunity-generation call.
@@ -101,6 +102,78 @@ export const opportunityAnalysisJsonSchema = {
               coverage_gap: { type: "integer", minimum: 1, maximum: 5 },
               commercial_value: { type: "integer", minimum: 1, maximum: 5 },
             },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * Structured output contract for the KEYWORD_DISCOVERY job (Phase 2B).
+ *
+ * Same AI safety/quality constraints as the opportunity schema above: no
+ * field anywhere for search volume, CPC, competition, or ranking data — the
+ * model cannot persist invented metrics because there's nowhere to put them.
+ * `difficulty` is explicitly an internal 1-5 judgement, not a measured
+ * keyword-difficulty score. `most_relevant_existing_url` must match a URL
+ * from the crawled-pages list given in the prompt, or null.
+ */
+
+export const KEYWORD_SEARCH_INTENTS = ["INFORMATIONAL", "COMMERCIAL", "TRANSACTIONAL", "NAVIGATIONAL", "LOCAL", "UNKNOWN"] as const;
+
+const keywordSuggestionSchema = z.object({
+  keyword: z.string().min(2).max(100),
+  search_intent: z.enum(KEYWORD_SEARCH_INTENTS),
+  business_relevance: z.number().int().min(1).max(5),
+  commercial_value: z.number().int().min(1).max(5),
+  difficulty: z.number().int().min(1).max(5),
+  most_relevant_existing_url: z.string().nullable(),
+  reasoning: z.string().min(10).max(500),
+});
+
+export const keywordDiscoveryAnalysisSchema = z.object({
+  site_summary: z.string().min(10).max(1500),
+  keyword_suggestions: z.array(keywordSuggestionSchema).max(MAX_KEYWORDS_PER_DISCOVERY_RUN),
+});
+
+export type KeywordDiscoveryAnalysis = z.infer<typeof keywordDiscoveryAnalysisSchema>;
+export type KeywordSuggestionDraft = z.infer<typeof keywordSuggestionSchema>;
+
+export const keywordDiscoveryAnalysisJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["site_summary", "keyword_suggestions"],
+  properties: {
+    site_summary: {
+      type: "string",
+      description: "2-4 sentence plain-language summary of the business and what its existing content covers.",
+    },
+    keyword_suggestions: {
+      type: "array",
+      maxItems: MAX_KEYWORDS_PER_DISCOVERY_RUN,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["keyword", "search_intent", "business_relevance", "commercial_value", "difficulty", "most_relevant_existing_url", "reasoning"],
+        properties: {
+          keyword: { type: "string", description: "A specific, realistic search phrase — not a single generic word." },
+          search_intent: { type: "string", enum: KEYWORD_SEARCH_INTENTS as unknown as string[] },
+          business_relevance: { type: "integer", minimum: 1, maximum: 5 },
+          commercial_value: { type: "integer", minimum: 1, maximum: 5 },
+          difficulty: {
+            type: "integer",
+            minimum: 1,
+            maximum: 5,
+            description: "Your own internal estimate of how hard this would be to rank for, based only on the site data given — not a measured keyword-difficulty score.",
+          },
+          most_relevant_existing_url: {
+            type: ["string", "null"],
+            description: "Must exactly match a URL from the provided page list if one is genuinely relevant, otherwise null.",
+          },
+          reasoning: {
+            type: "string",
+            description: "Why this keyword matters and why the page match (or lack of one) was chosen, grounded only in the data provided.",
           },
         },
       },

@@ -16,6 +16,14 @@ SCHEDULER → JOB QUEUE → WORKER → ACTION → DATABASE → NEXT SCHEDULED RU
 
 A successful `CRAWL_WEBSITE` job automatically enqueues `RUN_SEO_AUDIT`, which automatically enqueues `GENERATE_SEO_OPPORTUNITIES` — regardless of whether the crawl was started by the scheduler, the admin UI, or the API. Manual triggers still work exactly as in Phase 1.
 
+**Phase 2B** adds a Keyword Intelligence layer on its own recurring schedule per website:
+
+```
+KEYWORD_DISCOVERY → keyword candidates (AI + provider) → page matching → opportunity scoring → promote high-value ones into seo_opportunities/seo_tasks
+```
+
+It reuses the existing `seo_opportunities`/`seo_tasks` system rather than building a parallel one — only keyword opportunities above a score threshold become real tasks.
+
 CV Central is the first test client, but nothing in the code is CV-Central-specific — it's seeded through the same `createOrganization`/`createWebsite` calls any client onboarding would use.
 
 ## Architecture
@@ -26,20 +34,24 @@ CV Central is the first test client, but nothing in the code is CV-Central-speci
 - **SEO audit**: `lib/audit/*` — a set of small, pure rule functions (`lib/audit/rules/*.ts`) run over crawled pages/links by `lib/audit/engine.ts`.
 - **AI**: `lib/ai/provider.ts` defines an `AIProvider` interface (`generateStructuredOutput`, `generateText`, `analyse`); `lib/ai/anthropic-provider.ts` is the only implementation today, using Claude's tool-use for structured output. `lib/ai/seo-analysis.ts` is the orchestration: build a compact structured summary from the DB → call the provider → validate with zod → dedupe → persist opportunities + tasks.
 - **Jobs**: `lib/jobs/*` — a `jobs` table + an in-process runner, no Redis/queue yet. `lib/jobs/trigger.ts` (fire-and-forget) is still what manual admin/API triggers use; `processPendingJobs` (`lib/jobs/runner.ts`) is a bounded worker loop that explicitly drains the queue rather than relying on a detached promise — used by the scheduler, `/api/jobs/process`, and `npm run jobs:sweep`. `processJob` enqueues the next pipeline stage on `COMPLETED` (`lib/jobs/policy.ts` has the pure due/stale/retry/next-stage decision logic, unit-tested in `policy.test.ts`).
-- **Scheduler**: `lib/jobs/scheduler.ts`'s `runScheduledSweep()` — recovers stale jobs, requeues retry-eligible failures, enqueues `CRAWL_WEBSITE` for due active websites, runs the worker loop, records a `scheduler_runs` row. Exposed at `POST/GET /api/scheduler/run` (bearer-secret gated) and called on a cron by `.github/workflows/scheduler.yml`. Designed so a real queue (BullMQ/Redis) could later replace the worker loop without touching `lib/jobs/handlers/*` — handlers only depend on the `JobHandler` signature, never on how they're invoked.
+- **Scheduler**: `lib/jobs/scheduler.ts`'s `runScheduledSweep()` — recovers stale jobs, requeues retry-eligible failures, enqueues `CRAWL_WEBSITE` and `KEYWORD_DISCOVERY` for due active websites (independent schedules), runs the worker loop, records a `scheduler_runs` row. Exposed at `POST/GET /api/scheduler/run` (bearer-secret gated) and called on a cron by `.github/workflows/scheduler.yml`. Designed so a real queue (BullMQ/Redis) could later replace the worker loop without touching `lib/jobs/handlers/*` — handlers only depend on the `JobHandler` signature, never on how they're invoked.
+- **Keyword Intelligence** (Phase 2B): `lib/keywords/*` — pure modules (normalize/match/score/merge) plus a `KeywordDataProvider` abstraction (`lib/keywords/provider.ts`), mirroring `AIProvider`'s shape exactly. `lib/jobs/handlers/keyword-discovery.ts` orchestrates it all and reuses Phase 1's `insertOpportunity`/`insertTask`/`linkOpportunityKeyword` to promote high-value keyword opportunities into the existing task system. See the dedicated section below.
 
 ```
 app/
   admin/            internal admin UI (server components + server actions)
     automation/      job stats, scheduler runs, per-website schedule, manual controls
+    websites/[id]/keywords/  Keyword Intelligence: stats, filters, run-discovery button
   api/               JSON API route handlers
     scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint
+    websites/[id]/keyword-discovery/  manual KEYWORD_DISCOVERY trigger
 lib/
   supabase/          server-side client + generated Database types
   crawler/            crawl engine
   audit/               technical SEO rules + engine
   ai/                    provider abstraction, schemas, prompts, analysis service
   jobs/                 job runner, scheduler, pure policy/decision functions, per-job-type handlers
+  keywords/              keyword provider abstraction + pure normalize/match/score/merge modules
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
 scripts/               seed.ts, run-pending-jobs.ts, run-scheduler.ts
@@ -47,22 +59,26 @@ scripts/               seed.ts, run-pending-jobs.ts, run-scheduler.ts
 
 ## Database schema
 
-16 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0004_scheduling.sql`) for the full source of truth.
+19 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0006_keyword_intelligence.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
-- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and scheduling fields added in Phase 2A: `next_crawl_at`, `crawl_frequency_days` (default 7 — weekly). `status='active'` doubles as the "eligible for scheduled crawling" flag; `paused`/`archived` websites are skipped by the scheduler.
-- **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by the scheduler.
-- **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error. Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
+- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and two **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly) and `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B). `status='active'` doubles as the "eligible for scheduling" flag for both; `paused`/`archived` websites are skipped.
+- **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by every schedule.
+- **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error (keyword-discovery counts live in the `summary` jsonb column). Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
 - **website_pages** — one row per crawled URL: status, title, meta description, H1, headings (jsonb), word count, canonical, noindex, structured-data types, image/link counts, orphan flag, redirect chain (jsonb).
 - **page_links** — the internal/external link graph between crawled pages.
 - **seo_audits** / **seo_issues** — one audit run → many issues, each with severity/category/recommended action.
-- **keywords**, **competitors** — manual or AI-suggested only; no scraping.
-- **seo_opportunities** — AI recommendations (`CREATE_NEW_PAGE` / `OPTIMISE_EXISTING_PAGE` / `TECHNICAL_FIX` / `INTERNAL_LINKING` / `RESEARCH_REQUIRED`), with `priority_score` + `priority_components` and an `ai_job_id` back-reference.
-- **opportunity_keywords** — join table.
+- **keywords** — per-org/website, unique on `(website_id, keyword, country, language)`. `source` distinguishes `'ai_suggested'` / `'provider'` / `'manual'`; `search_intent` is one of the 6 Phase 2B categories (`INFORMATIONAL`/`COMMERCIAL`/`TRANSACTIONAL`/`NAVIGATIONAL`/`LOCAL`/`UNKNOWN`).
+- **keyword_metrics** (Phase 2B) — real provider data only (search volume/competition/CPC + `metric_source`). An absent row means "no data collected," never a row of fabricated numbers.
+- **keyword_page_matches** (Phase 2B) — a keyword's best-matching existing page, `match_type` (title/h1/heading/url/meta_description/ai_semantic/none) + `relevance_score`.
+- **keyword_opportunities** (Phase 2B) — one row per (website, keyword): AI-derived 1-5 scores, computed `opportunity_score`, `recommended_action`, `reasoning`, and a `seo_opportunity_id` back-reference once promoted into the task system (null until then).
+- **competitors** — manual entry only; no scraping.
+- **seo_opportunities** — recommendations (`CREATE_NEW_PAGE` / `OPTIMISE_EXISTING_PAGE` / `TECHNICAL_FIX` / `INTERNAL_LINKING` / `RESEARCH_REQUIRED`), with `priority_score` + `priority_components` and an `ai_job_id` back-reference. Populated both by Phase 1's page-level AI analysis and by Phase 2B's keyword-opportunity promotion — one system, two feeders.
+- **opportunity_keywords** — join table (Phase 1), reused as-is by Phase 2B to link a promoted keyword to its `seo_opportunities` row.
 - **seo_tasks** — one task per stored opportunity (also usable standalone later), with its own status lifecycle.
-- **ai_jobs** — one row per individual AI provider call: provider, model, prompt version, token usage, latency, status, result. Distinct from `jobs` — a single `ANALYSE_WEBSITE`/`GENERATE_SEO_OPPORTUNITIES` job makes exactly one AI call today, but the schema allows more later without migration.
+- **ai_jobs** — one row per individual AI provider call: provider, model, prompt version, token usage, latency, status, result. Distinct from `jobs` — a single `GENERATE_SEO_OPPORTUNITIES`/`KEYWORD_DISCOVERY` job makes exactly one AI call today, but the schema allows more later without migration.
 
-RLS: every tenant table is scoped via an `is_org_member(organization_id)` helper function checked against `memberships`. The service-role key bypasses this by design (Phase 1); it exists for Phase 2 client-facing access.
+RLS: every tenant table is scoped via an `is_org_member(organization_id)` helper function checked against `memberships` (tables without a direct `organization_id`, like `keyword_metrics`/`keyword_page_matches`, join through `keywords` to reach it). The service-role key bypasses this by design (Phase 1); it exists for Phase 2 client-facing access.
 
 **Job-type note**: `ANALYSE_WEBSITE` and `GENERATE_SEO_OPPORTUNITIES` currently run the exact same handler (`lib/jobs/handlers/opportunities.ts`) — one AI pass that classifies pages/gaps and produces opportunities+tasks together. They're kept as distinct job types so a future phase can split "analysis" from "opportunity generation" (e.g. once a keyword-data provider justifies a separate, richer analysis step) without a job-model change.
 
@@ -88,7 +104,7 @@ Copy `.env.example` to `.env.local` and fill in:
 npm install
 npm run dev       # http://localhost:3000 (admin at /admin, prompts for ADMIN_PASSWORD via Basic Auth)
 npm run typecheck
-npm test           # audit rule unit tests (node:test)
+npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword modules (node:test)
 ```
 
 ## Supabase setup
@@ -181,12 +197,45 @@ Point a real scheduler at the HTTP endpoint later instead of building a queue no
 
 All existing `/api/**` routes besides `/api/scheduler/run` are unauthenticated — `proxy.ts`'s Basic Auth only matches `/admin/:path*`. This predates Phase 2A; worth hardening in a follow-up (e.g. widening the proxy matcher, or adding the same bearer-secret pattern to the other trigger routes).
 
-## What remains for Phase 2B+
+## Keyword Intelligence (Phase 2B)
 
-- Real keyword-data provider (search volume, difficulty) — explicitly not built here; `keywords.intent`/`source` are ready to receive it.
-- Splitting `ANALYSE_WEBSITE` into its own richer step once keyword data exists.
+Adds keyword storage, existing-page matching, and opportunity scoring per website, feeding high-value results into the *existing* `seo_opportunities`/`seo_tasks` system rather than a parallel one — and runs on its own recurring schedule via the Phase 2A scheduler.
+
+### Architecture
+
+- **`KeywordDataProvider`** (`lib/keywords/provider.ts`): `getKeywordMetrics()`, `getKeywordSuggestions()`, `getRelatedKeywords()`. The only implementation today, `NullKeywordProvider` (`lib/keywords/null-provider.ts`), returns **empty results** — no real keyword-data API is configured, and the platform's rule is that search volume/CPC/competition are either real provider data or absent entirely, never invented. `lib/keywords/get-provider.ts` is the factory seam, mirroring `lib/ai/get-provider.ts`.
+- **Keyword candidates** still have to come from somewhere with no real provider wired up: `lib/ai/prompts/keyword-discovery.ts` + a schema in `lib/ai/schemas.ts` ask the AI provider to propose phrases from the site's own crawled page inventory (titles/H1/meta/URLs, never raw HTML) — the schema has no field for volume/CPC/competition, so the model structurally cannot persist invented metrics, same trick as Phase 1's opportunity schema. Every keyword's `source` column records where it came from.
+- **Matching** (`lib/keywords/matching.ts`) is weighted lexical overlap (title 40% / H1 25% / heading 15% / URL 10% / meta 10%) against crawled pages, optionally corroborated by the AI's own holistic judgement (`match_type: 'ai_semantic'`). This is **not** embeddings/semantic search — explicitly labeled as such in code comments and the admin UI.
+- **Opportunity scoring** (`lib/keywords/scoring.ts`, `computeKeywordOpportunityScore()`) — a documented, configurable weighted formula:
+  ```
+  score = businessRelevance × 1.5 + commercialValue × 1.3 + coverageGap × 1.2 − difficulty × 1.0
+  ```
+  where `coverageGap` (1-5) is derived from how well an existing page already covers the keyword (no match = max gap). All weights are named exported constants. This is an **internal prioritisation score**, not a ranking prediction — labeled as such everywhere it's shown.
+- **Promotion**: only `keyword_opportunities` scoring ≥ `PROMOTION_THRESHOLD` (`lib/keywords/limits.ts`, default 8) become a real `seo_opportunities` row (+ `opportunity_keywords` link, reusing `linkOpportunityKeyword`) + `seo_tasks` row (reusing `insertTask`) — not every keyword becomes a task. A `seo_opportunity_id` back-reference makes promotion idempotent; re-running discovery never creates duplicate tasks for the same keyword.
+- **Provider failure handling**: the AI call is a hard failure (logged to `ai_jobs`, rethrown, flows into Phase 2A's existing retry policy for free). The `KeywordDataProvider` call is a soft failure — wrapped separately, logged, discovery proceeds AI-only. `lib/keywords/merge.ts`'s `mergeKeywordCandidates()` is the pure function that makes this testable without mocking a DB.
+
+### Configuring a real keyword provider
+
+1. Implement `KeywordDataProvider` in a new file (e.g. `lib/keywords/dataforseo-provider.ts`), calling the real API and mapping its response onto `KeywordMetricsResult`/`KeywordSuggestion` — never inventing a field the API didn't return.
+2. Wire it into `lib/keywords/get-provider.ts` (same pattern as `lib/ai/get-provider.ts`'s `AI_PROVIDER` switch).
+3. Nothing else changes — `lib/jobs/handlers/keyword-discovery.ts` only depends on the `KeywordDataProvider` interface.
+
+### Testing keyword discovery
+
+Via the admin UI: open a website's Keyword Intelligence page (`/admin/websites/[id]/keywords`) and click **Run Keyword Discovery**. Via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/websites/<website-id>/keyword-discovery -u admin:$ADMIN_PASSWORD
+```
+
+Requires a completed crawl first (it reads the crawled page inventory). Results — keywords, page matches, opportunities, and any promoted tasks — appear on the same Keyword Intelligence page, filterable by intent/action/status/source, each row labeled with its data source ("AI recommendation" vs "Provider data" vs "Manual entry"). Verified live against CV Central: 5-10 realistic, business-grounded keywords per run (e.g. *"landlord accountant"*-style specificity — in CV Central's case, things like *"CV application tracking tools"*, *"AI-powered CV builder UK"*), correctly matched to existing pages, correctly promoted to real `seo_tasks`, zero duplicates across repeated runs (including through a real transient network failure during testing, which the idempotency mechanism absorbed correctly).
+
+## What remains for Phase 2C+
+
+- A real `KeywordDataProvider` implementation (search volume/CPC/competition/difficulty) — the abstraction and schema are ready to receive one; see "Configuring a real keyword provider" above.
+- Splitting `ANALYSE_WEBSITE` into its own richer step once real keyword data exists.
 - A real worker/queue (BullMQ+Redis or similar) behind the same `jobs` table — `lib/jobs/handlers/*` only depend on the `JobHandler` signature, so this replaces `processPendingJobs`'s loop without touching them.
 - Securing the remaining unauthenticated `/api/**` trigger routes (see "Known gap" above).
-- Search Console integration, ranking history, backlink/competitor data.
+- Google Search Console integration, ranking history, backlink intelligence, competitor scraping.
 - Client-facing auth (Supabase Auth sessions using the `memberships`/RLS already in place) instead of the shared `ADMIN_PASSWORD`.
-- Content briefs, content generation/publishing, client-facing reports, billing — all explicitly out of scope so far.
+- Content briefs, automatic content generation/publishing, client-facing reports, billing — all explicitly out of scope so far.

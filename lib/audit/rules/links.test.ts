@@ -16,6 +16,8 @@ function fakeWebsite(): WebsiteForAudit {
     crawl_max_depth: 4,
     crawl_frequency_days: 7,
     next_crawl_at: null,
+    keyword_discovery_frequency_days: 30,
+    next_keyword_discovery_at: null,
     status: "active",
     last_crawled_at: null,
     created_at: "2026-01-01T00:00:00Z",

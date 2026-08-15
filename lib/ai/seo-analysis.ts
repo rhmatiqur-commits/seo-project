@@ -159,7 +159,12 @@ export async function generateSeoOpportunities(website: WebsiteRow, jobId: strin
       acceptedTitles.push(draft.title);
 
       for (const kw of draft.target_keywords) {
-        const keyword = await upsertKeyword(website.organization_id, website.id, kw, null, "ai_suggested");
+        const keyword = await upsertKeyword({
+          organizationId: website.organization_id,
+          websiteId: website.id,
+          keyword: kw,
+          source: "ai_suggested",
+        });
         await linkOpportunityKeyword(opportunity.id, keyword.id);
       }
 

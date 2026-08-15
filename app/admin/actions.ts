@@ -38,7 +38,7 @@ export async function createWebsiteAction(formData: FormData): Promise<void> {
 async function triggerAndReturn(
   websiteId: string,
   organizationId: string,
-  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES"
+  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY"
 ) {
   await triggerJob({
     organizationId,
@@ -47,6 +47,7 @@ async function triggerAndReturn(
     idempotencyKey: `${jobType}:${websiteId}`,
   });
   revalidatePath(`/admin/websites/${websiteId}`);
+  revalidatePath(`/admin/websites/${websiteId}/keywords`);
 }
 
 export async function triggerCrawlAction(formData: FormData): Promise<void> {
@@ -68,6 +69,13 @@ export async function triggerOpportunitiesAction(formData: FormData): Promise<vo
   const organizationId = String(formData.get("organization_id"));
   await triggerAndReturn(websiteId, organizationId, "GENERATE_SEO_OPPORTUNITIES");
   redirect(`/admin/websites/${websiteId}`);
+}
+
+export async function triggerKeywordDiscoveryAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  await triggerAndReturn(websiteId, organizationId, "KEYWORD_DISCOVERY");
+  redirect(`/admin/websites/${websiteId}/keywords`);
 }
 
 export async function updateTaskStatusAction(formData: FormData): Promise<void> {

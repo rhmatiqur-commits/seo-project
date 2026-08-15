@@ -201,33 +201,45 @@ export type Database = {
       };
       keywords: {
         Row: {
+          country: string;
           created_at: string;
           id: string;
           intent: string | null;
           keyword: string;
+          language: string;
           notes: string | null;
           organization_id: string;
+          search_intent: Database["public"]["Enums"]["keyword_search_intent"];
           source: Database["public"]["Enums"]["keyword_source"];
+          updated_at: string;
           website_id: string | null;
         };
         Insert: {
+          country?: string;
           created_at?: string;
           id?: string;
           intent?: string | null;
           keyword: string;
+          language?: string;
           notes?: string | null;
           organization_id: string;
+          search_intent?: Database["public"]["Enums"]["keyword_search_intent"];
           source?: Database["public"]["Enums"]["keyword_source"];
+          updated_at?: string;
           website_id?: string | null;
         };
         Update: {
+          country?: string;
           created_at?: string;
           id?: string;
           intent?: string | null;
           keyword?: string;
+          language?: string;
           notes?: string | null;
           organization_id?: string;
+          search_intent?: Database["public"]["Enums"]["keyword_search_intent"];
           source?: Database["public"]["Enums"]["keyword_source"];
+          updated_at?: string;
           website_id?: string | null;
         };
         Relationships: [
@@ -240,6 +252,179 @@ export type Database = {
           },
           {
             foreignKeyName: "keywords_website_id_fkey";
+            columns: ["website_id"];
+            isOneToOne: false;
+            referencedRelation: "websites";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      keyword_metrics: {
+        Row: {
+          competition: number | null;
+          cpc: number | null;
+          id: string;
+          keyword_id: string;
+          measured_at: string;
+          metric_source: string;
+          search_volume: number | null;
+        };
+        Insert: {
+          competition?: number | null;
+          cpc?: number | null;
+          id?: string;
+          keyword_id: string;
+          measured_at?: string;
+          metric_source: string;
+          search_volume?: number | null;
+        };
+        Update: {
+          competition?: number | null;
+          cpc?: number | null;
+          id?: string;
+          keyword_id?: string;
+          measured_at?: string;
+          metric_source?: string;
+          search_volume?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "keyword_metrics_keyword_id_fkey";
+            columns: ["keyword_id"];
+            isOneToOne: false;
+            referencedRelation: "keywords";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      keyword_page_matches: {
+        Row: {
+          created_at: string;
+          id: string;
+          keyword_id: string;
+          match_type: Database["public"]["Enums"]["keyword_match_type"];
+          page_id: string;
+          relevance_score: number;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          keyword_id: string;
+          match_type: Database["public"]["Enums"]["keyword_match_type"];
+          page_id: string;
+          relevance_score: number;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          keyword_id?: string;
+          match_type?: Database["public"]["Enums"]["keyword_match_type"];
+          page_id?: string;
+          relevance_score?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "keyword_page_matches_keyword_id_fkey";
+            columns: ["keyword_id"];
+            isOneToOne: false;
+            referencedRelation: "keywords";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "keyword_page_matches_page_id_fkey";
+            columns: ["page_id"];
+            isOneToOne: false;
+            referencedRelation: "website_pages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      keyword_opportunities: {
+        Row: {
+          business_relevance_score: number | null;
+          commercial_value_score: number | null;
+          created_at: string;
+          current_page_id: string | null;
+          difficulty_score: number | null;
+          id: string;
+          keyword_id: string;
+          opportunity_score: number;
+          opportunity_type: Database["public"]["Enums"]["opportunity_type"];
+          organization_id: string;
+          reasoning: string;
+          recommended_action: string;
+          seo_opportunity_id: string | null;
+          status: Database["public"]["Enums"]["opportunity_status"];
+          updated_at: string;
+          website_id: string;
+        };
+        Insert: {
+          business_relevance_score?: number | null;
+          commercial_value_score?: number | null;
+          created_at?: string;
+          current_page_id?: string | null;
+          difficulty_score?: number | null;
+          id?: string;
+          keyword_id: string;
+          opportunity_score: number;
+          opportunity_type: Database["public"]["Enums"]["opportunity_type"];
+          organization_id: string;
+          reasoning: string;
+          recommended_action: string;
+          seo_opportunity_id?: string | null;
+          status?: Database["public"]["Enums"]["opportunity_status"];
+          updated_at?: string;
+          website_id: string;
+        };
+        Update: {
+          business_relevance_score?: number | null;
+          commercial_value_score?: number | null;
+          created_at?: string;
+          current_page_id?: string | null;
+          difficulty_score?: number | null;
+          id?: string;
+          keyword_id?: string;
+          opportunity_score?: number;
+          opportunity_type?: Database["public"]["Enums"]["opportunity_type"];
+          organization_id?: string;
+          reasoning?: string;
+          recommended_action?: string;
+          seo_opportunity_id?: string | null;
+          status?: Database["public"]["Enums"]["opportunity_status"];
+          updated_at?: string;
+          website_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "keyword_opportunities_current_page_id_fkey";
+            columns: ["current_page_id"];
+            isOneToOne: false;
+            referencedRelation: "website_pages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "keyword_opportunities_keyword_id_fkey";
+            columns: ["keyword_id"];
+            isOneToOne: false;
+            referencedRelation: "keywords";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "keyword_opportunities_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "keyword_opportunities_seo_opportunity_id_fkey";
+            columns: ["seo_opportunity_id"];
+            isOneToOne: false;
+            referencedRelation: "seo_opportunities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "keyword_opportunities_website_id_fkey";
             columns: ["website_id"];
             isOneToOne: false;
             referencedRelation: "websites";
@@ -798,9 +983,11 @@ export type Database = {
           crawl_max_pages: number;
           created_at: string;
           id: string;
+          keyword_discovery_frequency_days: number;
           last_crawled_at: string | null;
           name: string;
           next_crawl_at: string | null;
+          next_keyword_discovery_at: string | null;
           organization_id: string;
           robots_txt_available: boolean | null;
           sitemap_available: boolean | null;
@@ -815,9 +1002,11 @@ export type Database = {
           crawl_max_pages?: number;
           created_at?: string;
           id?: string;
+          keyword_discovery_frequency_days?: number;
           last_crawled_at?: string | null;
           name: string;
           next_crawl_at?: string | null;
+          next_keyword_discovery_at?: string | null;
           organization_id: string;
           robots_txt_available?: boolean | null;
           sitemap_available?: boolean | null;
@@ -832,9 +1021,11 @@ export type Database = {
           crawl_max_pages?: number;
           created_at?: string;
           id?: string;
+          keyword_discovery_frequency_days?: number;
           last_crawled_at?: string | null;
           name?: string;
           next_crawl_at?: string | null;
+          next_keyword_discovery_at?: string | null;
           organization_id?: string;
           robots_txt_available?: boolean | null;
           sitemap_available?: boolean | null;
@@ -861,8 +1052,10 @@ export type Database = {
       issue_severity: "critical" | "high" | "medium" | "low";
       issue_status: "open" | "resolved" | "ignored";
       job_status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
-      job_type: "CRAWL_WEBSITE" | "ANALYSE_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES";
-      keyword_source: "ai_suggested" | "manual";
+      job_type: "CRAWL_WEBSITE" | "ANALYSE_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY";
+      keyword_match_type: "title" | "h1" | "heading" | "url" | "meta_description" | "ai_semantic" | "none";
+      keyword_search_intent: "INFORMATIONAL" | "COMMERCIAL" | "TRANSACTIONAL" | "NAVIGATIONAL" | "LOCAL" | "UNKNOWN";
+      keyword_source: "ai_suggested" | "manual" | "provider";
       membership_role: "owner" | "admin" | "member";
       opportunity_effort: "low" | "medium" | "high";
       opportunity_status: "new" | "approved" | "rejected" | "done";
@@ -887,6 +1080,8 @@ export type OpportunityEffort = Database["public"]["Enums"]["opportunity_effort"
 export type OpportunityStatus = Database["public"]["Enums"]["opportunity_status"];
 export type TaskStatus = Database["public"]["Enums"]["task_status"];
 export type KeywordSource = Database["public"]["Enums"]["keyword_source"];
+export type KeywordSearchIntent = Database["public"]["Enums"]["keyword_search_intent"];
+export type KeywordMatchType = Database["public"]["Enums"]["keyword_match_type"];
 
 /** Shape of website_pages.headings (stored as jsonb; not enforced by Postgres). */
 export interface Heading {

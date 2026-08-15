@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   isDueForCrawl,
   shouldEnqueueWebsiteCrawl,
+  isDueForKeywordDiscovery,
+  shouldEnqueueKeywordDiscovery,
   isStaleProcessing,
   isRetryEligible,
   getNextJobType,
@@ -45,6 +47,28 @@ test("shouldEnqueueWebsiteCrawl: due website with an already-active crawl job ->
 
 test("shouldEnqueueWebsiteCrawl: not-due website -> do not enqueue even with no active job", () => {
   assert.equal(shouldEnqueueWebsiteCrawl({ status: "active", next_crawl_at: minutesFromNow(5) }, null, NOW), false);
+});
+
+// --- 5 & 6, keyword discovery variant: its own independent schedule ---
+
+test("isDueForKeywordDiscovery: active website with no next_keyword_discovery_at is due (first-ever run)", () => {
+  assert.equal(isDueForKeywordDiscovery({ status: "active", next_keyword_discovery_at: null }, NOW), true);
+});
+
+test("isDueForKeywordDiscovery: active website whose next_keyword_discovery_at is in the future is not due", () => {
+  assert.equal(isDueForKeywordDiscovery({ status: "active", next_keyword_discovery_at: minutesFromNow(5) }, NOW), false);
+});
+
+test("isDueForKeywordDiscovery: paused website is never due", () => {
+  assert.equal(isDueForKeywordDiscovery({ status: "paused", next_keyword_discovery_at: minutesAgo(999) }, NOW), false);
+});
+
+test("shouldEnqueueKeywordDiscovery: due website with an already-active discovery job -> do not enqueue", () => {
+  assert.equal(shouldEnqueueKeywordDiscovery({ status: "active", next_keyword_discovery_at: null }, { id: "existing" }, NOW), false);
+});
+
+test("shouldEnqueueKeywordDiscovery: due website with no active job -> enqueue", () => {
+  assert.equal(shouldEnqueueKeywordDiscovery({ status: "active", next_keyword_discovery_at: null }, null, NOW), true);
 });
 
 // --- 4. Stale processing-job recovery ---
@@ -96,6 +120,10 @@ test("getNextJobType: CRAWL_WEBSITE -> RUN_SEO_AUDIT -> GENERATE_SEO_OPPORTUNITI
 
 test("getNextJobType: ANALYSE_WEBSITE is never auto-chained into anything", () => {
   assert.equal(getNextJobType("ANALYSE_WEBSITE"), null);
+});
+
+test("getNextJobType: KEYWORD_DISCOVERY is never auto-chained (its own independent schedule)", () => {
+  assert.equal(getNextJobType("KEYWORD_DISCOVERY"), null);
 });
 
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---

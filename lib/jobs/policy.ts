@@ -47,6 +47,29 @@ export function shouldEnqueueWebsiteCrawl(
   return isDueForCrawl(website, now) && existingActiveCrawlJob === null;
 }
 
+export interface KeywordDiscoveryScheduleInfo {
+  status: "active" | "paused" | "archived";
+  next_keyword_discovery_at: string | null;
+}
+
+/** Mirrors isDueForCrawl exactly, but against the keyword-discovery cadence
+ * (websites.next_keyword_discovery_at/keyword_discovery_frequency_days) —
+ * its own recurring schedule, configurable per website, independent of the
+ * crawl schedule (see lib/jobs/handlers/keyword-discovery.ts). */
+export function isDueForKeywordDiscovery(website: KeywordDiscoveryScheduleInfo, now: Date): boolean {
+  if (website.status !== "active") return false;
+  if (!website.next_keyword_discovery_at) return true;
+  return new Date(website.next_keyword_discovery_at).getTime() <= now.getTime();
+}
+
+export function shouldEnqueueKeywordDiscovery(
+  website: KeywordDiscoveryScheduleInfo,
+  existingActiveJob: unknown | null,
+  now: Date
+): boolean {
+  return isDueForKeywordDiscovery(website, now) && existingActiveJob === null;
+}
+
 export interface StaleCheckJob {
   status: JobStatus;
   started_at: string | null;
@@ -92,6 +115,10 @@ export function getNextJobType(jobType: JobType): JobType | null {
       return "GENERATE_SEO_OPPORTUNITIES";
     case "GENERATE_SEO_OPPORTUNITIES":
     case "ANALYSE_WEBSITE":
+      return null;
+    case "KEYWORD_DISCOVERY":
+      // Its own recurring schedule (see isDueForKeywordDiscovery above),
+      // deliberately not part of the crawl -> audit -> opportunities chain.
       return null;
     default:
       return null;

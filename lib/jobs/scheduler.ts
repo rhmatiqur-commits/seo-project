@@ -2,13 +2,15 @@ import { createJob, findActiveJob, listStaleProcessingJobs, listRetryEligibleFai
 import { listActiveWebsites } from "@/lib/db/websites";
 import { createSchedulerRun, completeSchedulerRun } from "@/lib/db/scheduler-runs";
 import { processPendingJobs } from "@/lib/jobs/runner";
-import { shouldEnqueueWebsiteCrawl } from "@/lib/jobs/policy";
+import { shouldEnqueueWebsiteCrawl, shouldEnqueueKeywordDiscovery } from "@/lib/jobs/policy";
 
 export interface SchedulerSummary {
   schedulerRunId: string;
   websitesChecked: number;
   crawlJobsCreated: number;
   crawlJobsSkippedDuplicate: number;
+  keywordDiscoveryJobsCreated: number;
+  keywordDiscoveryJobsSkippedDuplicate: number;
   staleRecovered: number;
   jobsRetried: number;
   worker: { processed: number; completed: number; failed: number; iterations: number; stoppedReason: string };
@@ -76,6 +78,33 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       }
     }
 
+    // 3b. Same due-check-and-enqueue for KEYWORD_DISCOVERY, on its own
+    // independent per-website schedule (next_keyword_discovery_at /
+    // keyword_discovery_frequency_days) — deliberately not chained off the
+    // crawl pipeline (see lib/jobs/policy.ts getNextJobType).
+    let keywordDiscoveryJobsCreated = 0;
+    let keywordDiscoveryJobsSkippedDuplicate = 0;
+    for (const website of websites) {
+      const existingActiveDiscoveryJob = await findActiveJob(website.id, "KEYWORD_DISCOVERY");
+      if (!shouldEnqueueKeywordDiscovery(website, existingActiveDiscoveryJob, now)) {
+        if (existingActiveDiscoveryJob) keywordDiscoveryJobsSkippedDuplicate++;
+        continue;
+      }
+      console.log(`[scheduler] website ${website.id} (${website.name}) is due for keyword discovery`);
+      const { created } = await createJob({
+        organization_id: website.organization_id,
+        website_id: website.id,
+        job_type: "KEYWORD_DISCOVERY",
+        idempotency_key: `KEYWORD_DISCOVERY:${website.id}`,
+      });
+      if (created) {
+        keywordDiscoveryJobsCreated++;
+        console.log(`[scheduler] created KEYWORD_DISCOVERY job for ${website.id}`);
+      } else {
+        keywordDiscoveryJobsSkippedDuplicate++;
+      }
+    }
+
     // 4. Explicitly process the queue within this invocation (bounded), so
     // the pipeline advances as far as it can before returning — see
     // lib/jobs/runner.ts processPendingJobs and lib/jobs/policy.ts for the budget.
@@ -95,11 +124,18 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
         jobs_retried: retryable.length,
         stale_recovered: stale.length,
       },
-      { summary: { stoppedReason: worker.stoppedReason, crawlJobsSkippedDuplicate } }
+      {
+        summary: {
+          stoppedReason: worker.stoppedReason,
+          crawlJobsSkippedDuplicate,
+          keywordDiscoveryJobsCreated,
+          keywordDiscoveryJobsSkippedDuplicate,
+        },
+      }
     );
 
     console.log(
-      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
+      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
     );
 
     return {
@@ -107,6 +143,8 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       websitesChecked: websites.length,
       crawlJobsCreated,
       crawlJobsSkippedDuplicate,
+      keywordDiscoveryJobsCreated,
+      keywordDiscoveryJobsSkippedDuplicate,
       staleRecovered: stale.length,
       jobsRetried: retryable.length,
       worker,
