@@ -1,0 +1,36 @@
+{
+  "name": "seo-automation-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant AI SEO automation platform — Phase 1 foundation (crawl -> audit -> AI analysis -> opportunities -> tasks).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test lib/**/*.test.ts",
+    "seed": "tsx scripts/seed.ts",
+    "jobs:sweep": "tsx scripts/run-pending-jobs.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@supabase/supabase-js": "^2.45.4",
+    "cheerio": "^1.0.0",
+    "next": "^16.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "robots-parser": "^3.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,53 @@
+/* Deliberately minimal — this is an internal admin tool, not a product UI. */
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 0;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+a { color: #0b5fff; }
+header.site {
+  background: #111827;
+  color: white;
+  padding: 12px 20px;
+}
+header.site a { color: white; text-decoration: none; font-weight: 600; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.15rem; margin-top: 28px; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 20px; font-size: 0.9rem; }
+th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; }
+form.inline { display: inline; }
+.card { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin: 12px 0; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.btn {
+  display: inline-block;
+  padding: 6px 12px;
+  background: #111827;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+.btn:hover { background: #333; }
+.btn.secondary { background: #6b7280; }
+input, select, textarea {
+  padding: 5px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; color: white; }
+.badge.critical, .badge.FAILED { background: #b91c1c; }
+.badge.high { background: #ea580c; }
+.badge.medium, .badge.PROCESSING, .badge.PENDING { background: #ca8a04; }
+.badge.low { background: #6b7280; }
+.badge.COMPLETED, .badge.completed, .badge.new { background: #15803d; }
+.badge.CANCELLED, .badge.cancelled { background: #9ca3af; }
+.muted { color: #666; font-size: 0.85rem; }
+.notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 10px 14px; border-radius: 6px; font-size: 0.85rem; margin: 10px 0; }
