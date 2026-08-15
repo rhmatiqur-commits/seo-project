@@ -29,6 +29,13 @@ const envSchema = z
     // convention (it auto-sends `Authorization: Bearer $CRON_SECRET`), so
     // deploying there later needs zero extra auth code.
     CRON_SECRET: z.string().min(1),
+
+    // Google Search Console integration (Phase 2C) — opt-in, not required at
+    // boot. Without these, the "Connect Search Console" admin action fails
+    // with a clear error instead of the whole app refusing to start; every
+    // other feature keeps working with zero GSC setup.
+    GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+    GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   })
   .refine((val) => (val.AI_PROVIDER === "anthropic" ? Boolean(val.ANTHROPIC_API_KEY) : Boolean(val.OPENAI_API_KEY)), {
     message: "Set ANTHROPIC_API_KEY (when AI_PROVIDER=anthropic) or OPENAI_API_KEY (when AI_PROVIDER=openai).",

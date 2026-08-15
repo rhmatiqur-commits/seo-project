@@ -552,6 +552,123 @@ export type Database = {
           },
         ];
       };
+      search_console_connections: {
+        Row: {
+          access_token: string | null;
+          access_token_expires_at: string | null;
+          connected_at: string;
+          id: string;
+          last_sync_error: string | null;
+          organization_id: string;
+          refresh_token: string;
+          scope: string;
+          site_url: string | null;
+          status: Database["public"]["Enums"]["search_console_connection_status"];
+          updated_at: string;
+          website_id: string;
+        };
+        Insert: {
+          access_token?: string | null;
+          access_token_expires_at?: string | null;
+          connected_at?: string;
+          id?: string;
+          last_sync_error?: string | null;
+          organization_id: string;
+          refresh_token: string;
+          scope: string;
+          site_url?: string | null;
+          status?: Database["public"]["Enums"]["search_console_connection_status"];
+          updated_at?: string;
+          website_id: string;
+        };
+        Update: {
+          access_token?: string | null;
+          access_token_expires_at?: string | null;
+          connected_at?: string;
+          id?: string;
+          last_sync_error?: string | null;
+          organization_id?: string;
+          refresh_token?: string;
+          scope?: string;
+          site_url?: string | null;
+          status?: Database["public"]["Enums"]["search_console_connection_status"];
+          updated_at?: string;
+          website_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "search_console_connections_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_console_connections_website_id_fkey";
+            columns: ["website_id"];
+            isOneToOne: true;
+            referencedRelation: "websites";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      search_console_metrics: {
+        Row: {
+          clicks: number;
+          ctr: number;
+          date: string;
+          fetched_at: string;
+          id: string;
+          impressions: number;
+          organization_id: string;
+          page_url: string | null;
+          position: number | null;
+          query: string | null;
+          website_id: string;
+        };
+        Insert: {
+          clicks?: number;
+          ctr?: number;
+          date: string;
+          fetched_at?: string;
+          id?: string;
+          impressions?: number;
+          organization_id: string;
+          page_url?: string | null;
+          position?: number | null;
+          query?: string | null;
+          website_id: string;
+        };
+        Update: {
+          clicks?: number;
+          ctr?: number;
+          date?: string;
+          fetched_at?: string;
+          id?: string;
+          impressions?: number;
+          organization_id?: string;
+          page_url?: string | null;
+          position?: number | null;
+          query?: string | null;
+          website_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "search_console_metrics_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_console_metrics_website_id_fkey";
+            columns: ["website_id"];
+            isOneToOne: false;
+            referencedRelation: "websites";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       scheduler_runs: {
         Row: {
           completed_at: string | null;
@@ -988,8 +1105,10 @@ export type Database = {
           name: string;
           next_crawl_at: string | null;
           next_keyword_discovery_at: string | null;
+          next_search_console_sync_at: string | null;
           organization_id: string;
           robots_txt_available: boolean | null;
+          search_console_sync_frequency_days: number;
           sitemap_available: boolean | null;
           sitemap_url: string | null;
           status: Database["public"]["Enums"]["website_status"];
@@ -1007,8 +1126,10 @@ export type Database = {
           name: string;
           next_crawl_at?: string | null;
           next_keyword_discovery_at?: string | null;
+          next_search_console_sync_at?: string | null;
           organization_id: string;
           robots_txt_available?: boolean | null;
+          search_console_sync_frequency_days?: number;
           sitemap_available?: boolean | null;
           sitemap_url?: string | null;
           status?: Database["public"]["Enums"]["website_status"];
@@ -1026,8 +1147,10 @@ export type Database = {
           name?: string;
           next_crawl_at?: string | null;
           next_keyword_discovery_at?: string | null;
+          next_search_console_sync_at?: string | null;
           organization_id?: string;
           robots_txt_available?: boolean | null;
+          search_console_sync_frequency_days?: number;
           sitemap_available?: boolean | null;
           sitemap_url?: string | null;
           status?: Database["public"]["Enums"]["website_status"];
@@ -1052,7 +1175,7 @@ export type Database = {
       issue_severity: "critical" | "high" | "medium" | "low";
       issue_status: "open" | "resolved" | "ignored";
       job_status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
-      job_type: "CRAWL_WEBSITE" | "ANALYSE_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY";
+      job_type: "CRAWL_WEBSITE" | "ANALYSE_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY" | "SEARCH_CONSOLE_SYNC";
       keyword_match_type: "title" | "h1" | "heading" | "url" | "meta_description" | "ai_semantic" | "none";
       keyword_search_intent: "INFORMATIONAL" | "COMMERCIAL" | "TRANSACTIONAL" | "NAVIGATIONAL" | "LOCAL" | "UNKNOWN";
       keyword_source: "ai_suggested" | "manual" | "provider";
@@ -1060,6 +1183,7 @@ export type Database = {
       opportunity_effort: "low" | "medium" | "high";
       opportunity_status: "new" | "approved" | "rejected" | "done";
       opportunity_type: "CREATE_NEW_PAGE" | "OPTIMISE_EXISTING_PAGE" | "TECHNICAL_FIX" | "INTERNAL_LINKING" | "RESEARCH_REQUIRED";
+      search_console_connection_status: "pending_site_selection" | "active" | "error";
       task_status: "pending" | "in_progress" | "completed" | "cancelled";
       website_status: "active" | "paused" | "archived";
     };
@@ -1082,6 +1206,7 @@ export type TaskStatus = Database["public"]["Enums"]["task_status"];
 export type KeywordSource = Database["public"]["Enums"]["keyword_source"];
 export type KeywordSearchIntent = Database["public"]["Enums"]["keyword_search_intent"];
 export type KeywordMatchType = Database["public"]["Enums"]["keyword_match_type"];
+export type SearchConsoleConnectionStatus = Database["public"]["Enums"]["search_console_connection_status"];
 
 /** Shape of website_pages.headings (stored as jsonb; not enforced by Postgres). */
 export interface Heading {

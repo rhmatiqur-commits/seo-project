@@ -24,6 +24,14 @@ KEYWORD_DISCOVERY → keyword candidates (AI + provider) → page matching → o
 
 It reuses the existing `seo_opportunities`/`seo_tasks` system rather than building a parallel one — only keyword opportunities above a score threshold become real tasks.
 
+**Phase 2C** connects each client's own Google Search Console property, per-website OAuth:
+
+```
+Admin connects GSC property → SEARCH_CONSOLE_SYNC (own schedule) → real clicks/impressions/CTR/position stored, labeled as measured data
+```
+
+This is the platform's first **real, external, measured** data source — distinct from crawled data, AI-derived opportunities, and provider-estimated keyword metrics. Display-only in this phase; feeding it into keyword-opportunity scoring is a Phase 2D follow-up.
+
 CV Central is the first test client, but nothing in the code is CV-Central-specific — it's seeded through the same `createOrganization`/`createWebsite` calls any client onboarding would use.
 
 ## Architecture
@@ -36,15 +44,19 @@ CV Central is the first test client, but nothing in the code is CV-Central-speci
 - **Jobs**: `lib/jobs/*` — a `jobs` table + an in-process runner, no Redis/queue yet. `lib/jobs/trigger.ts` (fire-and-forget) is still what manual admin/API triggers use; `processPendingJobs` (`lib/jobs/runner.ts`) is a bounded worker loop that explicitly drains the queue rather than relying on a detached promise — used by the scheduler, `/api/jobs/process`, and `npm run jobs:sweep`. `processJob` enqueues the next pipeline stage on `COMPLETED` (`lib/jobs/policy.ts` has the pure due/stale/retry/next-stage decision logic, unit-tested in `policy.test.ts`).
 - **Scheduler**: `lib/jobs/scheduler.ts`'s `runScheduledSweep()` — recovers stale jobs, requeues retry-eligible failures, enqueues `CRAWL_WEBSITE` and `KEYWORD_DISCOVERY` for due active websites (independent schedules), runs the worker loop, records a `scheduler_runs` row. Exposed at `POST/GET /api/scheduler/run` (bearer-secret gated) and called on a cron by `.github/workflows/scheduler.yml`. Designed so a real queue (BullMQ/Redis) could later replace the worker loop without touching `lib/jobs/handlers/*` — handlers only depend on the `JobHandler` signature, never on how they're invoked.
 - **Keyword Intelligence** (Phase 2B): `lib/keywords/*` — pure modules (normalize/match/score/merge) plus a `KeywordDataProvider` abstraction (`lib/keywords/provider.ts`), mirroring `AIProvider`'s shape exactly. `lib/jobs/handlers/keyword-discovery.ts` orchestrates it all and reuses Phase 1's `insertOpportunity`/`insertTask`/`linkOpportunityKeyword` to promote high-value keyword opportunities into the existing task system. See the dedicated section below.
+- **Search Console integration** (Phase 2C): `lib/search-console/*` — hand-rolled `fetch` wrappers around Google's OAuth and Search Console (Webmasters v3) REST endpoints (no `googleapis` dependency), a signed/expiring OAuth `state` param for the unauthenticated callback route, and a pure row-normalizer. `lib/jobs/handlers/search-console-sync.ts` refreshes the access token when needed and upserts real metrics. See the dedicated section below.
 
 ```
 app/
   admin/            internal admin UI (server components + server actions)
     automation/      job stats, scheduler runs, per-website schedule, manual controls
     websites/[id]/keywords/  Keyword Intelligence: stats, filters, run-discovery button
+    websites/[id]/search-console/  Search Console: connect/site-picker, stats, metrics table
   api/               JSON API route handlers
     scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint
     websites/[id]/keyword-discovery/  manual KEYWORD_DISCOVERY trigger
+    websites/[id]/search-console-sync/  manual SEARCH_CONSOLE_SYNC trigger
+    auth/google-search-console/start|callback/  OAuth flow (unauthenticated by necessity; state-signed)
 lib/
   supabase/          server-side client + generated Database types
   crawler/            crawl engine
@@ -52,6 +64,7 @@ lib/
   ai/                    provider abstraction, schemas, prompts, analysis service
   jobs/                 job runner, scheduler, pure policy/decision functions, per-job-type handlers
   keywords/              keyword provider abstraction + pure normalize/match/score/merge modules
+  search-console/        OAuth/API clients, signed state param, pure row-normalizer
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
 scripts/               seed.ts, run-pending-jobs.ts, run-scheduler.ts
@@ -59,10 +72,10 @@ scripts/               seed.ts, run-pending-jobs.ts, run-scheduler.ts
 
 ## Database schema
 
-19 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0006_keyword_intelligence.sql`) for the full source of truth.
+21 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0008_search_console.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
-- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and two **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly) and `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B). `status='active'` doubles as the "eligible for scheduling" flag for both; `paused`/`archived` websites are skipped.
+- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and three **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), and `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C). `status='active'` doubles as the "eligible for scheduling" flag for all three; `paused`/`archived` websites are skipped.
 - **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by every schedule.
 - **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error (keyword-discovery counts live in the `summary` jsonb column). Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
 - **website_pages** — one row per crawled URL: status, title, meta description, H1, headings (jsonb), word count, canonical, noindex, structured-data types, image/link counts, orphan flag, redirect chain (jsonb).
@@ -72,6 +85,8 @@ scripts/               seed.ts, run-pending-jobs.ts, run-scheduler.ts
 - **keyword_metrics** (Phase 2B) — real provider data only (search volume/competition/CPC + `metric_source`). An absent row means "no data collected," never a row of fabricated numbers.
 - **keyword_page_matches** (Phase 2B) — a keyword's best-matching existing page, `match_type` (title/h1/heading/url/meta_description/ai_semantic/none) + `relevance_score`.
 - **keyword_opportunities** (Phase 2B) — one row per (website, keyword): AI-derived 1-5 scores, computed `opportunity_score`, `recommended_action`, `reasoning`, and a `seo_opportunity_id` back-reference once promoted into the task system (null until then).
+- **search_console_connections** (Phase 2C) — one row per website (`unique(website_id)`): OAuth `refresh_token`/`access_token`/expiry, the chosen `site_url` (null until the site-picker step), `status` (`pending_site_selection`/`active`/`error`), `last_sync_error`. Tokens are plaintext columns, service-role-only access — same trust model already used for API keys as env vars; field-level encryption is a flagged future hardening.
+- **search_console_metrics** (Phase 2C) — actual Google data only: `date`/`query`/`page_url`/`clicks`/`impressions`/`ctr`/`position`, unique on `(website_id, date, query, page_url)` so re-syncing overlapping date ranges never duplicates rows.
 - **competitors** — manual entry only; no scraping.
 - **seo_opportunities** — recommendations (`CREATE_NEW_PAGE` / `OPTIMISE_EXISTING_PAGE` / `TECHNICAL_FIX` / `INTERNAL_LINKING` / `RESEARCH_REQUIRED`), with `priority_score` + `priority_components` and an `ai_job_id` back-reference. Populated both by Phase 1's page-level AI analysis and by Phase 2B's keyword-opportunity promotion — one system, two feeders.
 - **opportunity_keywords** — join table (Phase 1), reused as-is by Phase 2B to link a promoted keyword to its `seo_opportunities` row.
@@ -97,6 +112,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `ADMIN_PASSWORD` | Any value — gates `/admin` via HTTP Basic Auth (Phase 1 has no per-user login) |
 | `CRAWLER_USER_AGENT` | Optional override; defaults to `SEOPlatformBot/0.1 (+https://example.com/bot)` |
 | `CRON_SECRET` | Any long random value (e.g. `openssl rand -hex 32`) — gates `/api/scheduler/run`. Matches Vercel Cron's own convention. |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Optional — only needed for the Search Console integration (Phase 2C). See "Search Console integration" below for how to create these in Google Cloud Console. Everything else works with zero GSC setup. |
 
 ## Local development
 
@@ -104,7 +120,7 @@ Copy `.env.example` to `.env.local` and fill in:
 npm install
 npm run dev       # http://localhost:3000 (admin at /admin, prompts for ADMIN_PASSWORD via Basic Auth)
 npm run typecheck
-npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword modules (node:test)
+npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword modules, search-console modules (node:test)
 ```
 
 ## Supabase setup
@@ -178,7 +194,7 @@ Point a real scheduler at the HTTP endpoint later instead of building a queue no
 
 1. **Recover stale jobs** — any `PROCESSING` job whose `started_at` is older than 15 minutes (`STALE_PROCESSING_THRESHOLD_MS` in `lib/jobs/policy.ts`) is treated as failed and flows into step 2.
 2. **Requeue retry-eligible failures** — a `FAILED` job with `retry_count < max_retries` (default 3, so 3 total attempts) whose `completed_at` is more than 5 minutes ago (`RETRY_COOLDOWN_MS`) goes back to `PENDING`. A job at `max_retries` is left permanently `FAILED` — no endless retries.
-3. **Enqueue due crawls** — for each `status='active'` website whose `next_crawl_at` has passed (or is `null`, i.e. never crawled), create a `CRAWL_WEBSITE` job, skipping any website that already has one `PENDING`/`PROCESSING` (the existing idempotency-key index handles this).
+3. **Enqueue due jobs** — for each `status='active'` website whose relevant `next_*_at` has passed (or is `null`), create the corresponding job, skipping any website that already has one `PENDING`/`PROCESSING` (the existing idempotency-key index handles this): `CRAWL_WEBSITE`, `KEYWORD_DISCOVERY` (Phase 2B), and `SEARCH_CONSOLE_SYNC` (Phase 2C, scoped to only websites with an `active` `search_console_connections` row).
 4. **Drain the queue** — runs the bounded worker loop (up to 4 minutes / 30 iterations, `lib/jobs/policy.ts`), re-querying between jobs so a job chained mid-sweep (e.g. the audit created right after a crawl completes) gets processed in the same invocation when there's time left.
 5. **Record the run** — one `scheduler_runs` row with counts, visible at `/admin/automation`.
 
@@ -230,12 +246,44 @@ curl -X POST http://localhost:3000/api/websites/<website-id>/keyword-discovery -
 
 Requires a completed crawl first (it reads the crawled page inventory). Results — keywords, page matches, opportunities, and any promoted tasks — appear on the same Keyword Intelligence page, filterable by intent/action/status/source, each row labeled with its data source ("AI recommendation" vs "Provider data" vs "Manual entry"). Verified live against CV Central: 5-10 realistic, business-grounded keywords per run (e.g. *"landlord accountant"*-style specificity — in CV Central's case, things like *"CV application tracking tools"*, *"AI-powered CV builder UK"*), correctly matched to existing pages, correctly promoted to real `seo_tasks`, zero duplicates across repeated runs (including through a real transient network failure during testing, which the idempotency mechanism absorbed correctly).
 
-## What remains for Phase 2C+
+## Search Console integration (Phase 2C)
+
+Per-website Google OAuth connection — each client authorizes read-only access to their own Search Console property, not one shared static credential — that syncs real clicks/impressions/CTR/position on its own recurring schedule. This is the platform's first genuinely external/measured data source; everything before it was crawled, AI-derived, or provider-estimated.
+
+### Architecture
+
+- **OAuth** (`lib/search-console/oauth.ts`): hand-rolled `fetch` calls to Google's OAuth endpoints (`access_type=offline` + `prompt=consent`, so a refresh token is always returned, even on reconnect) — no `googleapis` dependency, same philosophy as the crawler.
+- **CSRF-safe callback** (`lib/search-console/state.ts`): the OAuth callback (`app/api/auth/google-search-console/callback/route.ts`) is necessarily reachable without Basic Auth — Google's redirect can't carry it. It's protected instead by a signed, expiring `state` param (HMAC via `node:crypto`, keyed by `GOOGLE_OAUTH_CLIENT_SECRET`, so no extra secret is needed): without that secret, an attacker cannot forge a state binding to an arbitrary `website_id`.
+- **Site selection**: a Google account can have several verified GSC properties, so the connection starts in `status='pending_site_selection'` after the OAuth callback; the admin picks one on `/admin/websites/[id]/search-console` (`lib/search-console/client.ts`'s `listSites()`) before syncing begins.
+- **Sync** (`lib/jobs/handlers/search-console-sync.ts`): refreshes the access token if it's expired/near-expiry, pulls the last `SYNC_LOOKBACK_DAYS` (7) days dimensioned by `[date, query, page]`, capped at `MAX_ROWS_PER_SYNC` (500) — named constants in `lib/search-console/limits.ts`. Rows are upserted (`unique(website_id, date, query, page_url)`), so re-syncing an overlapping window never duplicates data and self-heals if Google backfills/revises recent rows.
+- **Honesty**: `search_console_metrics` only ever holds what Google's API actually returned — `lib/search-console/normalize.ts` is a pure mapper with no fabricated fields, and the admin UI labels this data "Actual Google Search Console data" to distinguish it from AI-derived opportunities and provider-estimated keyword metrics.
+- **Known simplification, flagged**: `refresh_token`/`access_token` are stored as plaintext columns (service-role-only access, same trust model already used for `SUPABASE_SERVICE_ROLE_KEY`/AI provider keys). Field-level encryption is worth adding later; not blocking for this phase.
+
+### Setting up Google OAuth credentials
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create/select a project and enable the **Google Search Console API**.
+2. Configure the OAuth consent screen (External is fine; Testing mode is fine) with scope `https://www.googleapis.com/auth/webmasters.readonly`.
+3. Create an **OAuth 2.0 Client ID** (Web application) with authorized redirect URI `http://localhost:3000/api/auth/google-search-console/callback` (adjust the host for a real deployment).
+4. Add `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` to `.env.local`.
+5. The Google account used to connect needs access to the target GSC property (verified in Search Console itself).
+
+### Testing the integration
+
+Via the admin UI: open a website's Search Console page (`/admin/websites/[id]/search-console`) and click **Connect Search Console** — this redirects to Google, then back to the site-picker, then shows stats/metrics once a property is selected. **Sync now** triggers a manual `SEARCH_CONSOLE_SYNC` job (mirrors the keyword-discovery manual-trigger pattern):
+
+```bash
+curl -X POST http://localhost:3000/api/websites/<website-id>/search-console-sync -u admin:$ADMIN_PASSWORD
+```
+
+Re-run a sync twice to confirm the unique constraint prevents duplicate rows.
+
+## What remains for Phase 2D+
 
 - A real `KeywordDataProvider` implementation (search volume/CPC/competition/difficulty) — the abstraction and schema are ready to receive one; see "Configuring a real keyword provider" above.
+- Feeding real Search Console position/clicks into `keyword_opportunities.difficulty_score`, replacing the AI-estimated placeholder now that real ranking data exists.
 - Splitting `ANALYSE_WEBSITE` into its own richer step once real keyword data exists.
 - A real worker/queue (BullMQ+Redis or similar) behind the same `jobs` table — `lib/jobs/handlers/*` only depend on the `JobHandler` signature, so this replaces `processPendingJobs`'s loop without touching them.
-- Securing the remaining unauthenticated `/api/**` trigger routes (see "Known gap" above).
-- Google Search Console integration, ranking history, backlink intelligence, competitor scraping.
+- Securing the remaining unauthenticated `/api/**` trigger routes (see "Known gap" above) — now including the two new Search Console trigger/OAuth routes.
+- Ranking history, backlink intelligence, competitor scraping.
 - Client-facing auth (Supabase Auth sessions using the `memberships`/RLS already in place) instead of the shared `ADMIN_PASSWORD`.
 - Content briefs, automatic content generation/publishing, client-facing reports, billing — all explicitly out of scope so far.

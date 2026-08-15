@@ -1,8 +1,9 @@
 import { createJob, findActiveJob, listStaleProcessingJobs, listRetryEligibleFailedJobs, requeueFailedJob, markJobStale } from "@/lib/db/jobs";
 import { listActiveWebsites } from "@/lib/db/websites";
+import { listActiveWebsitesWithSearchConsoleConnection } from "@/lib/db/search-console";
 import { createSchedulerRun, completeSchedulerRun } from "@/lib/db/scheduler-runs";
 import { processPendingJobs } from "@/lib/jobs/runner";
-import { shouldEnqueueWebsiteCrawl, shouldEnqueueKeywordDiscovery } from "@/lib/jobs/policy";
+import { shouldEnqueueWebsiteCrawl, shouldEnqueueKeywordDiscovery, shouldEnqueueSearchConsoleSync } from "@/lib/jobs/policy";
 
 export interface SchedulerSummary {
   schedulerRunId: string;
@@ -11,6 +12,8 @@ export interface SchedulerSummary {
   crawlJobsSkippedDuplicate: number;
   keywordDiscoveryJobsCreated: number;
   keywordDiscoveryJobsSkippedDuplicate: number;
+  searchConsoleSyncJobsCreated: number;
+  searchConsoleSyncJobsSkippedDuplicate: number;
   staleRecovered: number;
   jobsRetried: number;
   worker: { processed: number; completed: number; failed: number; iterations: number; stoppedReason: string };
@@ -105,6 +108,34 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       }
     }
 
+    // 3c. Same due-check-and-enqueue for SEARCH_CONSOLE_SYNC, scoped to only
+    // websites with an active connection (most websites won't have one) —
+    // its own independent schedule (next_search_console_sync_at /
+    // search_console_sync_frequency_days), not chained off the crawl pipeline.
+    const searchConsoleWebsites = await listActiveWebsitesWithSearchConsoleConnection();
+    let searchConsoleSyncJobsCreated = 0;
+    let searchConsoleSyncJobsSkippedDuplicate = 0;
+    for (const website of searchConsoleWebsites) {
+      const existingActiveSyncJob = await findActiveJob(website.id, "SEARCH_CONSOLE_SYNC");
+      if (!shouldEnqueueSearchConsoleSync(website, existingActiveSyncJob, now)) {
+        if (existingActiveSyncJob) searchConsoleSyncJobsSkippedDuplicate++;
+        continue;
+      }
+      console.log(`[scheduler] website ${website.id} (${website.name}) is due for Search Console sync`);
+      const { created } = await createJob({
+        organization_id: website.organization_id,
+        website_id: website.id,
+        job_type: "SEARCH_CONSOLE_SYNC",
+        idempotency_key: `SEARCH_CONSOLE_SYNC:${website.id}`,
+      });
+      if (created) {
+        searchConsoleSyncJobsCreated++;
+        console.log(`[scheduler] created SEARCH_CONSOLE_SYNC job for ${website.id}`);
+      } else {
+        searchConsoleSyncJobsSkippedDuplicate++;
+      }
+    }
+
     // 4. Explicitly process the queue within this invocation (bounded), so
     // the pipeline advances as far as it can before returning — see
     // lib/jobs/runner.ts processPendingJobs and lib/jobs/policy.ts for the budget.
@@ -130,12 +161,15 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
           crawlJobsSkippedDuplicate,
           keywordDiscoveryJobsCreated,
           keywordDiscoveryJobsSkippedDuplicate,
+          searchConsoleWebsitesChecked: searchConsoleWebsites.length,
+          searchConsoleSyncJobsCreated,
+          searchConsoleSyncJobsSkippedDuplicate,
         },
       }
     );
 
     console.log(
-      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
+      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
     );
 
     return {
@@ -145,6 +179,8 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       crawlJobsSkippedDuplicate,
       keywordDiscoveryJobsCreated,
       keywordDiscoveryJobsSkippedDuplicate,
+      searchConsoleSyncJobsCreated,
+      searchConsoleSyncJobsSkippedDuplicate,
       staleRecovered: stale.length,
       jobsRetried: retryable.length,
       worker,

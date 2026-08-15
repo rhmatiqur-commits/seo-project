@@ -8,6 +8,7 @@ import { updateTaskStatus } from "@/lib/db/tasks";
 import { triggerJob } from "@/lib/jobs/trigger";
 import { processPendingJobs } from "@/lib/jobs/runner";
 import { runScheduledSweep } from "@/lib/jobs/scheduler";
+import { selectSearchConsoleSite, disconnectSearchConsole } from "@/lib/db/search-console";
 import type { TaskStatus } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
@@ -38,7 +39,7 @@ export async function createWebsiteAction(formData: FormData): Promise<void> {
 async function triggerAndReturn(
   websiteId: string,
   organizationId: string,
-  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY"
+  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY" | "SEARCH_CONSOLE_SYNC"
 ) {
   await triggerJob({
     organizationId,
@@ -48,6 +49,7 @@ async function triggerAndReturn(
   });
   revalidatePath(`/admin/websites/${websiteId}`);
   revalidatePath(`/admin/websites/${websiteId}/keywords`);
+  revalidatePath(`/admin/websites/${websiteId}/search-console`);
 }
 
 export async function triggerCrawlAction(formData: FormData): Promise<void> {
@@ -76,6 +78,29 @@ export async function triggerKeywordDiscoveryAction(formData: FormData): Promise
   const organizationId = String(formData.get("organization_id"));
   await triggerAndReturn(websiteId, organizationId, "KEYWORD_DISCOVERY");
   redirect(`/admin/websites/${websiteId}/keywords`);
+}
+
+export async function triggerSearchConsoleSyncAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  await triggerAndReturn(websiteId, organizationId, "SEARCH_CONSOLE_SYNC");
+  redirect(`/admin/websites/${websiteId}/search-console`);
+}
+
+export async function selectSearchConsoleSiteAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const siteUrl = String(formData.get("site_url"));
+  if (!siteUrl) throw new Error("Choose a Search Console property");
+  await selectSearchConsoleSite(websiteId, siteUrl);
+  revalidatePath(`/admin/websites/${websiteId}/search-console`);
+  redirect(`/admin/websites/${websiteId}/search-console`);
+}
+
+export async function disconnectSearchConsoleAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  await disconnectSearchConsole(websiteId);
+  revalidatePath(`/admin/websites/${websiteId}/search-console`);
+  redirect(`/admin/websites/${websiteId}/search-console`);
 }
 
 export async function updateTaskStatusAction(formData: FormData): Promise<void> {

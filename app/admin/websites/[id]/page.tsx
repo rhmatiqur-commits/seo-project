@@ -82,9 +82,12 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
         <span className="muted">Buttons create a job and return immediately — refresh to see progress below.</span>
       </div>
 
-      <p>
+      <p className="row">
         <Link className="btn secondary" href={`/admin/websites/${website.id}/keywords`}>
           Keyword Intelligence &rarr;
+        </Link>
+        <Link className="btn secondary" href={`/admin/websites/${website.id}/search-console`}>
+          Search Console &rarr;
         </Link>
       </p>
 

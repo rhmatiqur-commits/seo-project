@@ -18,6 +18,8 @@ function fakeWebsite(): WebsiteForAudit {
     next_crawl_at: null,
     keyword_discovery_frequency_days: 30,
     next_keyword_discovery_at: null,
+    search_console_sync_frequency_days: 1,
+    next_search_console_sync_at: null,
     status: "active",
     last_crawled_at: null,
     created_at: "2026-01-01T00:00:00Z",

@@ -70,6 +70,30 @@ export function shouldEnqueueKeywordDiscovery(
   return isDueForKeywordDiscovery(website, now) && existingActiveJob === null;
 }
 
+export interface SearchConsoleSyncScheduleInfo {
+  status: "active" | "paused" | "archived";
+  next_search_console_sync_at: string | null;
+}
+
+/** Mirrors isDueForCrawl/isDueForKeywordDiscovery, but against the Search
+ * Console sync cadence (websites.next_search_console_sync_at/
+ * search_console_sync_frequency_days) — its own independent recurring
+ * schedule. The scheduler additionally scopes this to websites with an
+ * active connection before ever calling this (see lib/jobs/scheduler.ts). */
+export function isDueForSearchConsoleSync(website: SearchConsoleSyncScheduleInfo, now: Date): boolean {
+  if (website.status !== "active") return false;
+  if (!website.next_search_console_sync_at) return true;
+  return new Date(website.next_search_console_sync_at).getTime() <= now.getTime();
+}
+
+export function shouldEnqueueSearchConsoleSync(
+  website: SearchConsoleSyncScheduleInfo,
+  existingActiveJob: unknown | null,
+  now: Date
+): boolean {
+  return isDueForSearchConsoleSync(website, now) && existingActiveJob === null;
+}
+
 export interface StaleCheckJob {
   status: JobStatus;
   started_at: string | null;
@@ -118,6 +142,10 @@ export function getNextJobType(jobType: JobType): JobType | null {
       return null;
     case "KEYWORD_DISCOVERY":
       // Its own recurring schedule (see isDueForKeywordDiscovery above),
+      // deliberately not part of the crawl -> audit -> opportunities chain.
+      return null;
+    case "SEARCH_CONSOLE_SYNC":
+      // Its own recurring schedule (see isDueForSearchConsoleSync above),
       // deliberately not part of the crawl -> audit -> opportunities chain.
       return null;
     default:

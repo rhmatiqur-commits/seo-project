@@ -5,6 +5,8 @@ import {
   shouldEnqueueWebsiteCrawl,
   isDueForKeywordDiscovery,
   shouldEnqueueKeywordDiscovery,
+  isDueForSearchConsoleSync,
+  shouldEnqueueSearchConsoleSync,
   isStaleProcessing,
   isRetryEligible,
   getNextJobType,
@@ -71,6 +73,32 @@ test("shouldEnqueueKeywordDiscovery: due website with no active job -> enqueue",
   assert.equal(shouldEnqueueKeywordDiscovery({ status: "active", next_keyword_discovery_at: null }, null, NOW), true);
 });
 
+// --- 5 & 6, search console sync variant: its own independent schedule ---
+
+test("isDueForSearchConsoleSync: active website with no next_search_console_sync_at is due (first-ever sync)", () => {
+  assert.equal(isDueForSearchConsoleSync({ status: "active", next_search_console_sync_at: null }, NOW), true);
+});
+
+test("isDueForSearchConsoleSync: active website whose next_search_console_sync_at has passed is due", () => {
+  assert.equal(isDueForSearchConsoleSync({ status: "active", next_search_console_sync_at: minutesAgo(5) }, NOW), true);
+});
+
+test("isDueForSearchConsoleSync: active website whose next_search_console_sync_at is in the future is not due", () => {
+  assert.equal(isDueForSearchConsoleSync({ status: "active", next_search_console_sync_at: minutesFromNow(5) }, NOW), false);
+});
+
+test("isDueForSearchConsoleSync: paused website is never due", () => {
+  assert.equal(isDueForSearchConsoleSync({ status: "paused", next_search_console_sync_at: minutesAgo(999) }, NOW), false);
+});
+
+test("shouldEnqueueSearchConsoleSync: due website with an already-active sync job -> do not enqueue", () => {
+  assert.equal(shouldEnqueueSearchConsoleSync({ status: "active", next_search_console_sync_at: null }, { id: "existing" }, NOW), false);
+});
+
+test("shouldEnqueueSearchConsoleSync: due website with no active job -> enqueue", () => {
+  assert.equal(shouldEnqueueSearchConsoleSync({ status: "active", next_search_console_sync_at: null }, null, NOW), true);
+});
+
 // --- 4. Stale processing-job recovery ---
 
 test("isStaleProcessing: PROCESSING job started well past the threshold is stale", () => {
@@ -124,6 +152,10 @@ test("getNextJobType: ANALYSE_WEBSITE is never auto-chained into anything", () =
 
 test("getNextJobType: KEYWORD_DISCOVERY is never auto-chained (its own independent schedule)", () => {
   assert.equal(getNextJobType("KEYWORD_DISCOVERY"), null);
+});
+
+test("getNextJobType: SEARCH_CONSOLE_SYNC is never auto-chained (its own independent schedule)", () => {
+  assert.equal(getNextJobType("SEARCH_CONSOLE_SYNC"), null);
 });
 
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---

@@ -3,6 +3,7 @@ import { handleCrawlWebsite } from "@/lib/jobs/handlers/crawl";
 import { handleRunSeoAudit } from "@/lib/jobs/handlers/audit";
 import { handleGenerateSeoOpportunities } from "@/lib/jobs/handlers/opportunities";
 import { handleKeywordDiscovery } from "@/lib/jobs/handlers/keyword-discovery";
+import { handleSearchConsoleSync } from "@/lib/jobs/handlers/search-console-sync";
 import { getNextJobType, shouldAdvancePipeline, WORKER_LOOP_MAX_DURATION_MS, WORKER_LOOP_MAX_ITERATIONS } from "@/lib/jobs/policy";
 import type { JobHandler, JobRow } from "@/lib/jobs/types";
 import type { JobType } from "@/lib/supabase/types";
@@ -13,6 +14,7 @@ const HANDLERS: Record<JobType, JobHandler> = {
   ANALYSE_WEBSITE: handleGenerateSeoOpportunities,
   GENERATE_SEO_OPPORTUNITIES: handleGenerateSeoOpportunities,
   KEYWORD_DISCOVERY: handleKeywordDiscovery,
+  SEARCH_CONSOLE_SYNC: handleSearchConsoleSync,
 };
 
 /**
