@@ -1,4 +1,4 @@
-import { getAIProvider } from "@/lib/ai/anthropic-provider";
+import { getAIProvider } from "@/lib/ai/get-provider";
 import { opportunityAnalysisSchema, opportunityAnalysisJsonSchema, MAX_NEW_PAGES_PER_RUN } from "@/lib/ai/schemas";
 import { OPPORTUNITY_PROMPT_VERSION, OPPORTUNITY_SYSTEM_PROMPT, buildOpportunityUserPrompt } from "@/lib/ai/prompts/opportunities";
 import { listPagesForWebsite } from "@/lib/db/pages";

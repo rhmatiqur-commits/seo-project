@@ -12,7 +12,8 @@ export class AnthropicProvider implements AIProvider {
   readonly defaultModel = env.ANTHROPIC_MODEL;
   private client: Anthropic;
 
-  constructor(apiKey: string = env.ANTHROPIC_API_KEY) {
+  constructor(apiKey: string | undefined = env.ANTHROPIC_API_KEY) {
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set.");
     this.client = new Anthropic({ apiKey });
   }
 
@@ -88,11 +89,4 @@ export class AnthropicProvider implements AIProvider {
       latencyMs: Date.now() - startedAt,
     };
   }
-}
-
-let cached: AnthropicProvider | null = null;
-
-export function getAIProvider(): AIProvider {
-  if (!cached) cached = new AnthropicProvider();
-  return cached;
 }

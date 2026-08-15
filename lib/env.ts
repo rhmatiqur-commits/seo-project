@@ -5,18 +5,30 @@ import { z } from "zod";
  * of reading `process.env` directly so missing/invalid config fails fast with a
  * clear error instead of surfacing as a confusing runtime bug later.
  */
-const envSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
-  ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_MODEL: z.string().min(1).default("claude-sonnet-4-5"),
-  ADMIN_PASSWORD: z.string().min(1),
-  CRAWLER_USER_AGENT: z
-    .string()
-    .min(1)
-    .default("SEOPlatformBot/0.1 (+https://example.com/bot)"),
-});
+const envSchema = z
+  .object({
+    NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+
+    // Which AIProvider implementation lib/ai/get-provider.ts hands back.
+    // Only the selected provider's key is required — see the refine() below.
+    AI_PROVIDER: z.enum(["anthropic", "openai"]).default("anthropic"),
+    ANTHROPIC_API_KEY: z.string().min(1).optional(),
+    ANTHROPIC_MODEL: z.string().min(1).default("claude-sonnet-4-5"),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    OPENAI_MODEL: z.string().min(1).default("gpt-4o"),
+
+    ADMIN_PASSWORD: z.string().min(1),
+    CRAWLER_USER_AGENT: z
+      .string()
+      .min(1)
+      .default("SEOPlatformBot/0.1 (+https://example.com/bot)"),
+  })
+  .refine((val) => (val.AI_PROVIDER === "anthropic" ? Boolean(val.ANTHROPIC_API_KEY) : Boolean(val.OPENAI_API_KEY)), {
+    message: "Set ANTHROPIC_API_KEY (when AI_PROVIDER=anthropic) or OPENAI_API_KEY (when AI_PROVIDER=openai).",
+    path: ["AI_PROVIDER"],
+  });
 
 function loadEnv() {
   const parsed = envSchema.safeParse(process.env);
