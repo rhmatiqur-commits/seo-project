@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # Build with placeholder, non-secret env vars — this validates the app
+      # compiles and bundles correctly, not that it can reach a real Supabase
+      # project or AI provider (that's what the seed/crawl/audit/opportunity
+      # steps in the README are for, run locally with real credentials).
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-not-a-real-key
+          AI_PROVIDER: anthropic
+          ANTHROPIC_API_KEY: placeholder-not-a-real-key
+          ADMIN_PASSWORD: placeholder
