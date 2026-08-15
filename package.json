@@ -10,8 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test lib/**/*.test.ts",
-    "seed": "tsx scripts/seed.ts",
-    "jobs:sweep": "tsx scripts/run-pending-jobs.ts"
+    "seed": "node --env-file=.env.local --import tsx scripts/seed.ts",
+    "jobs:sweep": "node --env-file=.env.local --import tsx scripts/run-pending-jobs.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
