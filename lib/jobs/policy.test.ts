@@ -154,8 +154,9 @@ test("getNextJobType: KEYWORD_DISCOVERY is never auto-chained (its own independe
   assert.equal(getNextJobType("KEYWORD_DISCOVERY"), null);
 });
 
-test("getNextJobType: SEARCH_CONSOLE_SYNC is never auto-chained (its own independent schedule)", () => {
-  assert.equal(getNextJobType("SEARCH_CONSOLE_SYNC"), null);
+test("getNextJobType: SEARCH_CONSOLE_SYNC -> ANALYSE_SEARCH_PERFORMANCE -> null (Phase 2D chaining)", () => {
+  assert.equal(getNextJobType("SEARCH_CONSOLE_SYNC"), "ANALYSE_SEARCH_PERFORMANCE");
+  assert.equal(getNextJobType("ANALYSE_SEARCH_PERFORMANCE"), null);
 });
 
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---

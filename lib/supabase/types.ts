@@ -669,6 +669,115 @@ export type Database = {
           },
         ];
       };
+      search_performance_opportunities: {
+        Row: {
+          ai_analysed_at: string | null;
+          ai_rationale: string | null;
+          ai_risk_notes: string | null;
+          created_at: string;
+          dedupe_key: string;
+          detector_type: Database["public"]["Enums"]["search_performance_detector_type"];
+          id: string;
+          keyword_id: string | null;
+          opportunity_score: number;
+          organization_id: string;
+          page_id: string | null;
+          reasoning: string;
+          recommended_action: Database["public"]["Enums"]["opportunity_type"];
+          related_page_id: string | null;
+          seo_opportunity_id: string | null;
+          signals: Json;
+          status: Database["public"]["Enums"]["opportunity_status"];
+          updated_at: string;
+          website_id: string;
+        };
+        Insert: {
+          ai_analysed_at?: string | null;
+          ai_rationale?: string | null;
+          ai_risk_notes?: string | null;
+          created_at?: string;
+          dedupe_key: string;
+          detector_type: Database["public"]["Enums"]["search_performance_detector_type"];
+          id?: string;
+          keyword_id?: string | null;
+          opportunity_score: number;
+          organization_id: string;
+          page_id?: string | null;
+          reasoning: string;
+          recommended_action: Database["public"]["Enums"]["opportunity_type"];
+          related_page_id?: string | null;
+          seo_opportunity_id?: string | null;
+          signals?: Json;
+          status?: Database["public"]["Enums"]["opportunity_status"];
+          updated_at?: string;
+          website_id: string;
+        };
+        Update: {
+          ai_analysed_at?: string | null;
+          ai_rationale?: string | null;
+          ai_risk_notes?: string | null;
+          created_at?: string;
+          dedupe_key?: string;
+          detector_type?: Database["public"]["Enums"]["search_performance_detector_type"];
+          id?: string;
+          keyword_id?: string | null;
+          opportunity_score?: number;
+          organization_id?: string;
+          page_id?: string | null;
+          reasoning?: string;
+          recommended_action?: Database["public"]["Enums"]["opportunity_type"];
+          related_page_id?: string | null;
+          seo_opportunity_id?: string | null;
+          signals?: Json;
+          status?: Database["public"]["Enums"]["opportunity_status"];
+          updated_at?: string;
+          website_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "search_performance_opportunities_keyword_id_fkey";
+            columns: ["keyword_id"];
+            isOneToOne: false;
+            referencedRelation: "keywords";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_performance_opportunities_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_performance_opportunities_page_id_fkey";
+            columns: ["page_id"];
+            isOneToOne: false;
+            referencedRelation: "website_pages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_performance_opportunities_related_page_id_fkey";
+            columns: ["related_page_id"];
+            isOneToOne: false;
+            referencedRelation: "website_pages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_performance_opportunities_seo_opportunity_id_fkey";
+            columns: ["seo_opportunity_id"];
+            isOneToOne: false;
+            referencedRelation: "seo_opportunities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "search_performance_opportunities_website_id_fkey";
+            columns: ["website_id"];
+            isOneToOne: false;
+            referencedRelation: "websites";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       scheduler_runs: {
         Row: {
           completed_at: string | null;
@@ -1175,15 +1284,39 @@ export type Database = {
       issue_severity: "critical" | "high" | "medium" | "low";
       issue_status: "open" | "resolved" | "ignored";
       job_status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
-      job_type: "CRAWL_WEBSITE" | "ANALYSE_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY" | "SEARCH_CONSOLE_SYNC";
+      job_type:
+        | "CRAWL_WEBSITE"
+        | "ANALYSE_WEBSITE"
+        | "RUN_SEO_AUDIT"
+        | "GENERATE_SEO_OPPORTUNITIES"
+        | "KEYWORD_DISCOVERY"
+        | "SEARCH_CONSOLE_SYNC"
+        | "ANALYSE_SEARCH_PERFORMANCE";
       keyword_match_type: "title" | "h1" | "heading" | "url" | "meta_description" | "ai_semantic" | "none";
       keyword_search_intent: "INFORMATIONAL" | "COMMERCIAL" | "TRANSACTIONAL" | "NAVIGATIONAL" | "LOCAL" | "UNKNOWN";
       keyword_source: "ai_suggested" | "manual" | "provider";
       membership_role: "owner" | "admin" | "member";
       opportunity_effort: "low" | "medium" | "high";
       opportunity_status: "new" | "approved" | "rejected" | "done";
-      opportunity_type: "CREATE_NEW_PAGE" | "OPTIMISE_EXISTING_PAGE" | "TECHNICAL_FIX" | "INTERNAL_LINKING" | "RESEARCH_REQUIRED";
+      opportunity_type:
+        | "CREATE_NEW_PAGE"
+        | "OPTIMISE_EXISTING_PAGE"
+        | "TECHNICAL_FIX"
+        | "INTERNAL_LINKING"
+        | "RESEARCH_REQUIRED"
+        | "IMPROVE_CTR"
+        | "INVESTIGATE_DECLINE"
+        | "INVESTIGATE_OPPORTUNITY"
+        | "IMPROVE_INTERNAL_LINKING";
       search_console_connection_status: "pending_site_selection" | "active" | "error";
+      search_performance_detector_type:
+        | "PAGE_TWO_OPPORTUNITY"
+        | "HIGH_IMPRESSIONS_LOW_CTR"
+        | "MISSING_PAGE"
+        | "DECLINING_KEYWORD"
+        | "EMERGING_KEYWORD"
+        | "CONTENT_GAP"
+        | "INTERNAL_LINK_OPPORTUNITY";
       task_status: "pending" | "in_progress" | "completed" | "cancelled";
       website_status: "active" | "paused" | "archived";
     };
@@ -1207,6 +1340,7 @@ export type KeywordSource = Database["public"]["Enums"]["keyword_source"];
 export type KeywordSearchIntent = Database["public"]["Enums"]["keyword_search_intent"];
 export type KeywordMatchType = Database["public"]["Enums"]["keyword_match_type"];
 export type SearchConsoleConnectionStatus = Database["public"]["Enums"]["search_console_connection_status"];
+export type SearchPerformanceDetectorType = Database["public"]["Enums"]["search_performance_detector_type"];
 
 /** Shape of website_pages.headings (stored as jsonb; not enforced by Postgres). */
 export interface Heading {

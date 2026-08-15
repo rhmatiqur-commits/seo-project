@@ -132,6 +132,21 @@ export async function upsertSearchConsoleMetrics(
   return rows.length;
 }
 
+/** All rows for a website within a date range (inclusive) — the raw input
+ * lib/search-performance/comparison.ts aggregates/compares. Not limited by
+ * row count since a comparison window is already bounded by days, not rows. */
+export async function listSearchConsoleMetricsForWebsiteInRange(websiteId: string, startDate: string, endDate: string): Promise<MetricRow[]> {
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("search_console_metrics")
+    .select("*")
+    .eq("website_id", websiteId)
+    .gte("date", startDate)
+    .lte("date", endDate);
+  if (error) throw error;
+  return data;
+}
+
 export async function listSearchConsoleMetricsForWebsite(websiteId: string, limit = 100): Promise<MetricRow[]> {
   const db = supabaseAdmin();
   const { data, error } = await db

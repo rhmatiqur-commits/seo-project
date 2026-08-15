@@ -53,6 +53,27 @@ export async function listKeywordsForWebsite(websiteId: string): Promise<Keyword
   return data;
 }
 
+/** Latest real provider search_volume per keyword — Map<keywordId, searchVolume|null>.
+ * Missing from the map entirely (rather than present with null) means no
+ * metrics row was ever collected for that keyword. Used by
+ * lib/search-performance/detectors/missing-page.ts's demand-evidence check. */
+export async function listLatestKeywordSearchVolumes(keywordIds: string[]): Promise<Map<string, number | null>> {
+  if (keywordIds.length === 0) return new Map();
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("keyword_metrics")
+    .select("keyword_id, search_volume, measured_at")
+    .in("keyword_id", keywordIds)
+    .order("measured_at", { ascending: false });
+  if (error) throw error;
+
+  const result = new Map<string, number | null>();
+  for (const row of data) {
+    if (!result.has(row.keyword_id)) result.set(row.keyword_id, row.search_volume); // first occurrence per id = most recent, since ordered desc
+  }
+  return result;
+}
+
 export async function linkOpportunityKeyword(opportunityId: string, keywordId: string): Promise<void> {
   const db = supabaseAdmin();
   const { error } = await db

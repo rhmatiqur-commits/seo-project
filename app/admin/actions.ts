@@ -3,13 +3,15 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createOrganization } from "@/lib/db/organizations";
-import { createWebsite } from "@/lib/db/websites";
+import { createWebsite, getWebsite } from "@/lib/db/websites";
 import { updateTaskStatus } from "@/lib/db/tasks";
 import { triggerJob } from "@/lib/jobs/trigger";
 import { processPendingJobs } from "@/lib/jobs/runner";
 import { runScheduledSweep } from "@/lib/jobs/scheduler";
 import { selectSearchConsoleSite, disconnectSearchConsole } from "@/lib/db/search-console";
-import type { TaskStatus } from "@/lib/supabase/types";
+import { updateSearchPerformanceOpportunityStatus } from "@/lib/db/search-performance";
+import { assertWebsiteBelongsToOrganization } from "@/lib/api/authorize";
+import type { TaskStatus, OpportunityStatus } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
   const name = String(formData.get("name") ?? "").trim();
@@ -36,11 +38,22 @@ export async function createWebsiteAction(formData: FormData): Promise<void> {
   redirect(`/admin/organizations/${organizationId}`);
 }
 
+/**
+ * `organizationIdHint` comes from a hidden form field — client-controlled,
+ * not trusted at face value. The real organization_id is always derived
+ * from the website row itself (assertWebsiteBelongsToOrganization throws if
+ * the hint doesn't match, rather than silently using the mismatched value) —
+ * same derive-from-the-resource pattern every app/api/** trigger route
+ * already uses. See SECURITY_AUDIT.md.
+ */
 async function triggerAndReturn(
   websiteId: string,
-  organizationId: string,
-  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY" | "SEARCH_CONSOLE_SYNC"
+  organizationIdHint: string,
+  jobType: "CRAWL_WEBSITE" | "RUN_SEO_AUDIT" | "GENERATE_SEO_OPPORTUNITIES" | "KEYWORD_DISCOVERY" | "SEARCH_CONSOLE_SYNC" | "ANALYSE_SEARCH_PERFORMANCE"
 ) {
+  const website = await getWebsite(websiteId);
+  const organizationId = assertWebsiteBelongsToOrganization(website, organizationIdHint, websiteId);
+
   await triggerJob({
     organizationId,
     websiteId,
@@ -50,6 +63,7 @@ async function triggerAndReturn(
   revalidatePath(`/admin/websites/${websiteId}`);
   revalidatePath(`/admin/websites/${websiteId}/keywords`);
   revalidatePath(`/admin/websites/${websiteId}/search-console`);
+  revalidatePath(`/admin/websites/${websiteId}/search-performance`);
 }
 
 export async function triggerCrawlAction(formData: FormData): Promise<void> {
@@ -85,6 +99,22 @@ export async function triggerSearchConsoleSyncAction(formData: FormData): Promis
   const organizationId = String(formData.get("organization_id"));
   await triggerAndReturn(websiteId, organizationId, "SEARCH_CONSOLE_SYNC");
   redirect(`/admin/websites/${websiteId}/search-console`);
+}
+
+export async function triggerSearchPerformanceAnalysisAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  await triggerAndReturn(websiteId, organizationId, "ANALYSE_SEARCH_PERFORMANCE");
+  redirect(`/admin/websites/${websiteId}/search-performance`);
+}
+
+export async function updateSearchPerformanceOpportunityStatusAction(formData: FormData): Promise<void> {
+  const opportunityId = String(formData.get("opportunity_id"));
+  const websiteId = String(formData.get("website_id"));
+  const status = String(formData.get("status")) as OpportunityStatus;
+  await updateSearchPerformanceOpportunityStatus(opportunityId, status);
+  revalidatePath(`/admin/websites/${websiteId}/search-performance`);
+  redirect(`/admin/websites/${websiteId}/search-performance`);
 }
 
 export async function selectSearchConsoleSiteAction(formData: FormData): Promise<void> {

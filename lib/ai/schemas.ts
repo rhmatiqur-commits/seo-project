@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_KEYWORDS_PER_DISCOVERY_RUN } from "@/lib/keywords/limits";
+import { MAX_AI_INTERPRETATIONS_PER_RUN } from "@/lib/search-performance/limits";
 
 /**
  * Structured output contract for the SEO opportunity-generation call.
@@ -175,6 +176,61 @@ export const keywordDiscoveryAnalysisJsonSchema = {
             type: "string",
             description: "Why this keyword matters and why the page match (or lack of one) was chosen, grounded only in the data provided.",
           },
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * Structured output contract for ANALYSE_SEARCH_PERFORMANCE's optional AI
+ * interpretation pass (Phase 2D). All numeric detection/scoring already
+ * happened deterministically in TypeScript before this call — the AI's job
+ * is strictly interpretation, never calculation.
+ *
+ * AI safety constraints, enforced structurally: no field anywhere for clicks,
+ * impressions, position, CTR, search volume, or any other number the model
+ * might be tempted to recompute or invent — every input number is already
+ * final, and this schema has nowhere for the model to output a competing one.
+ * `opportunity_id` lets the handler map each interpretation back to the
+ * search_performance_opportunities row it belongs to.
+ */
+
+const searchPerformanceInterpretationItemSchema = z.object({
+  opportunity_id: z.string().min(1),
+  rationale: z.string().min(10).max(800),
+  content_direction: z.string().min(5).max(500),
+  suggested_page_note: z.string().max(300).nullable(),
+  risk_notes: z.string().max(500).nullable(),
+  cannibalisation_risk: z.boolean(),
+});
+
+export const searchPerformanceInterpretationSchema = z.object({
+  interpretations: z.array(searchPerformanceInterpretationItemSchema).max(MAX_AI_INTERPRETATIONS_PER_RUN),
+});
+
+export type SearchPerformanceInterpretation = z.infer<typeof searchPerformanceInterpretationSchema>;
+export type SearchPerformanceInterpretationItem = z.infer<typeof searchPerformanceInterpretationItemSchema>;
+
+export const searchPerformanceInterpretationJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["interpretations"],
+  properties: {
+    interpretations: {
+      type: "array",
+      maxItems: MAX_AI_INTERPRETATIONS_PER_RUN,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["opportunity_id", "rationale", "content_direction", "suggested_page_note", "risk_notes", "cannibalisation_risk"],
+        properties: {
+          opportunity_id: { type: "string", description: "Must exactly match the id of one of the opportunities given in the prompt." },
+          rationale: { type: "string", description: "Why this opportunity matters, grounded only in the deterministic signals provided — do not restate or recompute the numbers, explain their significance." },
+          content_direction: { type: "string", description: "Concrete guidance on what content/change to make. No invented data." },
+          suggested_page_note: { type: ["string", "null"], description: "A short note on which page to work on and why, or null if the given page_id already makes this obvious." },
+          risk_notes: { type: ["string", "null"], description: "Risks such as keyword cannibalisation with another known page/keyword, or null if none apply." },
+          cannibalisation_risk: { type: "boolean", description: "True only if you have a concrete reason to suspect this from the data given, not a default guess." },
         },
       },
     },

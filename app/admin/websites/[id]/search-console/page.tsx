@@ -23,8 +23,9 @@ export default async function WebsiteSearchConsolePage({ params }: { params: Pro
 
   return (
     <>
-      <p>
+      <p className="row">
         <Link href={`/admin/websites/${website.id}`}>&larr; {website.name}</Link>
+        <Link href={`/admin/websites/${website.id}/search-performance`}>SEO Decision Engine &rarr;</Link>
       </p>
       <h1>Search Console — {website.name}</h1>
 

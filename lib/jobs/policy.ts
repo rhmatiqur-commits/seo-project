@@ -145,8 +145,15 @@ export function getNextJobType(jobType: JobType): JobType | null {
       // deliberately not part of the crawl -> audit -> opportunities chain.
       return null;
     case "SEARCH_CONSOLE_SYNC":
-      // Its own recurring schedule (see isDueForSearchConsoleSync above),
-      // deliberately not part of the crawl -> audit -> opportunities chain.
+      // Its own recurring schedule (see isDueForSearchConsoleSync above) for
+      // *when a sync starts*, but a completed sync does chain into analysis
+      // (Phase 2D) — "run ANALYSE_SEARCH_PERFORMANCE after Search Console
+      // sync where appropriate" per spec.
+      return "ANALYSE_SEARCH_PERFORMANCE";
+    case "ANALYSE_SEARCH_PERFORMANCE":
+      // Terminal, and — like ANALYSE_WEBSITE — also independently, manually
+      // triggerable (e.g. for a website with no Search Console connection at
+      // all; CONTENT_GAP/INTERNAL_LINK_OPPORTUNITY don't need one).
       return null;
     default:
       return null;
