@@ -47,12 +47,39 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
     // 2. Retry-eligible failures (bounded by max_retries, gated by cooldown —
     // see lib/jobs/policy.ts). Requeuing sets them back to PENDING for the
     // worker loop below to pick up.
+    //
+    // A failed job can sit past its retry cooldown while a *newer* job with
+    // the same idempotency_key has since been created and is still active
+    // (PENDING/PROCESSING) or was already superseded some other way — e.g.
+    // this exact scenario, found live: a FETCH_SERP_RESULTS run failed
+    // (bad DataForSEO credentials at the time), the operator fixed the
+    // credentials and re-ran it manually before this old failure's cooldown
+    // even elapsed, and a *third*, still-PENDING retry attempt from an
+    // earlier sweep was left over too. When the cooldown finally did elapse,
+    // requeuing the original failure violated jobs_idempotency_key_uidx
+    // against that leftover PENDING row and crashed the entire sweep — every
+    // other phase (crawl/keyword-discovery/search-console-sync/content jobs)
+    // never got to run because of one stale retry. Requeuing is now treated
+    // as soft-failable on that specific constraint (23505 on this index) —
+    // "superseded, nothing to do" — exactly like every other duplicate-job
+    // guard in this codebase, instead of being fatal to the whole sweep.
     const retryable = await listRetryEligibleFailedJobs(now);
+    let jobsRetried = 0;
     for (const job of retryable) {
       console.log(`[scheduler] retrying job ${job.id} (${job.job_type}, attempt ${job.retry_count + 1}/${job.max_retries})`);
-      await requeueFailedJob(job.id);
+      try {
+        await requeueFailedJob(job.id);
+        jobsRetried++;
+      } catch (error) {
+        const pgCode = (error as { code?: string } | null)?.code;
+        if (pgCode === "23505") {
+          console.log(`[scheduler] skipped retry for job ${job.id}: a newer job with the same idempotency_key is already active (superseded)`);
+          continue;
+        }
+        throw error;
+      }
     }
-    if (retryable.length > 0) console.log(`[scheduler] requeued ${retryable.length} job(s) for retry`);
+    if (jobsRetried > 0) console.log(`[scheduler] requeued ${jobsRetried} job(s) for retry`);
 
     // 3. Enqueue CRAWL_WEBSITE for due active websites, skipping any that
     // already have an active (PENDING/PROCESSING) crawl job.
@@ -182,7 +209,7 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
         jobs_processed: worker.processed,
         jobs_completed: worker.completed,
         jobs_failed: worker.failed,
-        jobs_retried: retryable.length,
+        jobs_retried: jobsRetried,
         stale_recovered: stale.length,
       },
       {
@@ -201,7 +228,7 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
     );
 
     console.log(
-      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} serpFetchCreated=${serpFetchJobsCreated} staleRecovered=${stale.length} retried=${retryable.length} workerProcessed=${worker.processed}`
+      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} serpFetchCreated=${serpFetchJobsCreated} staleRecovered=${stale.length} retried=${jobsRetried} workerProcessed=${worker.processed}`
     );
 
     return {
@@ -216,7 +243,7 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       serpFetchJobsCreated,
       serpFetchJobsSkippedDuplicate,
       staleRecovered: stale.length,
-      jobsRetried: retryable.length,
+      jobsRetried,
       worker,
     };
   } catch (error) {
