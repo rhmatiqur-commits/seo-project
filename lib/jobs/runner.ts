@@ -11,8 +11,10 @@ import { handleAnalyseCompetitorGaps } from "@/lib/jobs/handlers/analyse-competi
 import { handleGenerateContent } from "@/lib/jobs/handlers/generate-content";
 import { handleQaContent } from "@/lib/jobs/handlers/qa-content";
 import { handleReviseContent } from "@/lib/jobs/handlers/revise-content";
+import { handleCreateDraft } from "@/lib/jobs/handlers/create-draft";
+import { handlePublishContent } from "@/lib/jobs/handlers/publish-content";
 import { getNextJobType, shouldAdvancePipeline, WORKER_LOOP_MAX_DURATION_MS, WORKER_LOOP_MAX_ITERATIONS } from "@/lib/jobs/policy";
-import type { JobHandler, JobRow } from "@/lib/jobs/types";
+import { PermanentJobError, type JobHandler, type JobRow } from "@/lib/jobs/types";
 import type { JobType } from "@/lib/supabase/types";
 
 const HANDLERS: Record<JobType, JobHandler> = {
@@ -29,6 +31,8 @@ const HANDLERS: Record<JobType, JobHandler> = {
   GENERATE_CONTENT: handleGenerateContent,
   QA_CONTENT: handleQaContent,
   REVISE_CONTENT: handleReviseContent,
+  CREATE_DRAFT: handleCreateDraft,
+  PUBLISH_CONTENT: handlePublishContent,
 };
 
 /**
@@ -102,8 +106,13 @@ export async function processJob(jobId: string): Promise<JobRow | null> {
     return completed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[jobs] failed ${job.job_type} job ${jobId}: ${message}`);
-    return markJobStatus(jobId, "FAILED", { error: message, retry_count: job.retry_count + 1 });
+    const isPermanent = error instanceof PermanentJobError;
+    console.error(`[jobs] failed ${job.job_type} job ${jobId}${isPermanent ? " (permanent, will not retry)" : ""}: ${message}`);
+    // A PermanentJobError means retrying can never succeed (content isn't
+    // APPROVED, invalid credentials, org mismatch, ...) — jumping retry_count
+    // straight to max_retries makes lib/jobs/policy.ts's isRetryEligible
+    // false forever, without a second "don't retry" flag/column anywhere.
+    return markJobStatus(jobId, "FAILED", { error: message, retry_count: isPermanent ? job.max_retries : job.retry_count + 1 });
   }
 }
 

@@ -3,8 +3,19 @@ import { notFound } from "next/navigation";
 import { getWebsite } from "@/lib/db/websites";
 import { getOpportunity } from "@/lib/db/opportunities";
 import { getContentBrief, listContentJobsForBrief, listContentVersionsForBrief, getLatestQaResultForVersion } from "@/lib/db/content";
+import { getCmsConnectionForWebsite } from "@/lib/db/cms-connections";
+import { getPublicationForVersion } from "@/lib/db/content-publications";
+import { toPublicConnection } from "@/lib/publishing/connection-view";
 import { availableContentActions } from "@/lib/content/state-machine";
-import { generateContentAction, runContentQaAction, reviseContentAction, approveContentAction, rejectContentAction } from "@/app/admin/actions";
+import {
+  generateContentAction,
+  runContentQaAction,
+  reviseContentAction,
+  approveContentAction,
+  rejectContentAction,
+  createDraftAction,
+  publishContentAction,
+} from "@/app/admin/actions";
 import type { ContentBrief } from "@/lib/content/brief-types";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +38,21 @@ export default async function ContentBriefPage({ params }: { params: Promise<{ i
   ]);
   const latestJob = jobs[0] ?? null;
   const qaResultsByVersion = new Map(await Promise.all(versions.map(async (v) => [v.id, await getLatestQaResultForVersion(v.id)] as const)));
+  const latestVersion = versions[versions.length - 1] ?? null;
+  const [connectionRow, publication] = await Promise.all([
+    getCmsConnectionForWebsite(website.id),
+    latestVersion ? getPublicationForVersion(latestVersion.id) : Promise.resolve(null),
+  ]);
+  const connection = connectionRow ? toPublicConnection(connectionRow) : null;
 
   const brief = briefRow.brief_data as unknown as ContentBrief;
   const actions = latestJob ? availableContentActions(latestJob.status) : { canApprove: false, canReject: false, canRevise: false };
   const canGenerate = !latestJob || latestJob.status === "APPROVED" || latestJob.status === "REJECTED";
   const canRunQa = latestJob?.status === "QA_PENDING";
+  // The one place this whole phase's safety rule is enforced in the UI —
+  // the server actions/job handlers re-check this independently regardless,
+  // this is only what decides whether the buttons are even clickable.
+  const canPublish = latestJob?.status === "APPROVED" && connection?.status === "active";
 
   return (
     <>
@@ -220,6 +241,68 @@ export default async function ContentBriefPage({ params }: { params: Promise<{ i
         );
       })}
       {versions.length === 0 && <p className="muted">No draft generated yet.</p>}
+
+      <h2>Publishing</h2>
+      <div className="card">
+        {!connection && (
+          <p className="muted">
+            No WordPress connection configured for this website.{" "}
+            <Link href={`/admin/websites/${website.id}/publishing`}>Connect one &rarr;</Link>
+          </p>
+        )}
+        {connection && (
+          <p className="muted">
+            Connected to <strong>{connection.baseUrl}</strong> &middot; <span className={`badge ${connection.status}`}>{connection.status}</span> &middot;{" "}
+            <Link href={`/admin/websites/${website.id}/publishing`}>Manage connection &rarr;</Link>
+          </p>
+        )}
+        {!latestVersion && <p className="muted">Generate and approve content before publishing.</p>}
+        {latestVersion && (
+          <>
+            <p className="muted">
+              Acts on version {latestVersion.version_number} &middot; content type: {briefRow.content_type} &middot; requires content status{" "}
+              <span className="badge APPROVED">APPROVED</span> (currently: <span className={`badge ${latestJob?.status ?? "DRAFT"}`}>{latestJob?.status ?? "none"}</span>).
+            </p>
+            {publication && (
+              <p>
+                Publication status: <span className={`badge ${publication.status}`}>{publication.status}</span>
+                {publication.target_url && (
+                  <>
+                    {" "}
+                    &middot;{" "}
+                    <a href={publication.target_url} target="_blank" rel="noreferrer">
+                      View page &rarr;
+                    </a>
+                  </>
+                )}
+              </p>
+            )}
+            {publication?.error && <div className="notice">{publication.error}</div>}
+            <div className="row">
+              <form action={createDraftAction}>
+                <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                <input type="hidden" name="website_id" value={website.id} />
+                <input type="hidden" name="organization_id" value={website.organization_id} />
+                <button className="btn secondary" type="submit" disabled={!canPublish}>
+                  {publication?.status === "FAILED" ? "Retry: Create Draft" : "Create Draft"}
+                </button>
+              </form>
+              <form action={publishContentAction}>
+                <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                <input type="hidden" name="website_id" value={website.id} />
+                <input type="hidden" name="organization_id" value={website.organization_id} />
+                <button className="btn" type="submit" disabled={!canPublish}>
+                  {publication?.status === "FAILED" ? "Retry: Publish" : "Publish"}
+                </button>
+              </form>
+            </div>
+            <p className="muted" style={{ marginTop: "8px" }}>
+              Create Draft never makes the page public. Publish is the only action that does — clicking it confirms you want &quot;{brief.primaryKeyword?.text ?? briefRow.primary_keyword}&quot; live at{" "}
+              {publication?.target_url ?? briefRow.target_url ?? "the resolved target URL"} on {connection?.baseUrl ?? "the connected site"}.
+            </p>
+          </>
+        )}
+      </div>
     </>
   );
 }

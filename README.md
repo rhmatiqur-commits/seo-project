@@ -58,6 +58,14 @@ SEO opportunity → content brief → GENERATE_CONTENT → deterministic+AI QA �
 
 Everything stops at approval — "ready for Phase 5 publishing," nothing is ever published automatically. Content generation sits behind a `ContentProvider` interface (`generateContent`/`reviseContent`/`generateMetadata`), initially implemented on the platform's own existing `AIProvider` — no CV Central content-writing system is reachable from this repository or environment (checked before writing any code; see the dedicated section below), so nothing was invented there.
 
+**Phase 5** closes the loop — APPROVED content becomes a real page on the client's own website:
+
+```
+APPROVED content → PublishingProvider → WordPress → CREATE_DRAFT (never public) → human clicks Publish → public URL → stored back for Phase 6 to measure
+```
+
+The one rule repeated throughout this phase: there is **no path** from AI-generated content to a live page without an explicit human "Publish" click, and every publish request re-verifies `content_jobs.status === 'APPROVED'` **server-side**, from the database, never from anything the browser sent. WordPress is the first `PublishingProvider` implementation, authenticated via WordPress's own Application Passwords (never the account's real login), with credentials encrypted through Supabase Vault — already installed on this project, so nothing was invented for credential storage either.
+
 ## Architecture
 
 - **Framework**: Next.js 16 (App Router) + TypeScript. One app serves both the JSON API (`app/api/**`, Route Handlers) and a deliberately plain internal admin UI (`app/admin/**`, server components + server actions — no client-side framework, no design investment).
@@ -73,6 +81,7 @@ Everything stops at approval — "ready for Phase 5 publishing," nothing is ever
 - **API authorization** (Phase 2D): `proxy.ts`'s Basic Auth now also covers `/api/**` (previously `/admin/**` only); `lib/api/authorize.ts` guards against a client-supplied organization id being trusted over the resource's real owner. See `SECURITY_AUDIT.md` for the full audit and its honestly-documented limits.
 - **Competitor & SERP Intelligence** (Phase 3): `lib/dataforseo/client.ts` — one shared Basic-Auth HTTP client used by both `lib/serp/dataforseo-serp-provider.ts` (`SerpDataProvider`) and `lib/keywords/dataforseo-provider.ts` (`KeywordDataProvider`). `lib/serp/*` holds deterministic classification/scoring/aggregation/overlap modules; 3 new detectors reuse Phase 2D's exact pipeline (`lib/jobs/handlers/search-performance-shared.ts`, extracted from `analyse-search-performance.ts` in this phase so both jobs share one code path). See the dedicated section below.
 - **Content Execution Engine** (Phase 4): `lib/content/*` — a `ContentProvider` interface (`provider.ts`/`get-provider.ts`, mirrors `AIProvider`'s shape) with an `AiContentProvider` implementation; a pure `buildContentBrief()` assembling a structured brief from already-collected Phase 1-3 data (`build-brief.ts`); a deterministic+AI QA system (`qa/*` — ~13 pure checks, one soft-failing AI rating call, a pure score/pass combiner); a pure approval state-machine (`state-machine.ts`). Three new job types (`GENERATE_CONTENT`/`QA_CONTENT`/`REVISE_CONTENT`, `lib/jobs/handlers/*-content.ts`) self-chain scoped by `content_job_id` rather than the generic website-scoped pipeline mechanism, since many content briefs can be in flight per website at once. See the dedicated section below.
+- **Publishing Engine** (Phase 5): `lib/publishing/*` — a `PublishingProvider` interface (`provider.ts`/`get-provider.ts`, a per-call factory since credentials are per-website, not a process-wide singleton) with a `WordPressPublishingProvider` implementation (hand-rolled `fetch` against the official WP REST API, no scraping); pure `retry-strategy.ts` (the "before retrying, check whether the page already exists" decision), `errors.ts` (permanent-vs-retryable classification), `url.ts` (never let an AI recommendation silently rename an existing page), `markdown.ts` (body Markdown → the HTML WordPress's REST API expects). Credentials are encrypted via **Supabase Vault** (`vault` schema + `pgsodium`, already installed on this project) through 4 `SECURITY DEFINER` wrapper functions (migration `0018`), never a plaintext column. Two new job types (`CREATE_DRAFT`/`PUBLISH_CONTENT`) self-chain scoped by `content_publication_id`, same reasoning as Phase 4's content jobs. A new generic job-engine primitive, `PermanentJobError` (`lib/jobs/types.ts`), lets any handler mark a failure as never-retryable (content not APPROVED, bad credentials, ...) — `lib/jobs/runner.ts` jumps `retry_count` straight to `max_retries` when it catches one. See the dedicated section below.
 
 ```
 app/
@@ -83,6 +92,7 @@ app/
     websites/[id]/search-performance/  SEO Decision Engine: opportunities table, filters, status updates
     websites/[id]/competitors/  Competitor & SERP Intelligence: competitors, SERPs, provider usage
     websites/[id]/content/  Content Execution: brief list, per-brief review/editor page
+    websites/[id]/publishing/  CMS connection form/status, recent publications
   api/               JSON API route handlers (Basic-Auth-gated, Phase 2D — see SECURITY_AUDIT.md)
     scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint (excluded from Basic Auth)
     websites/[id]/keyword-discovery/  manual KEYWORD_DISCOVERY trigger
@@ -90,6 +100,7 @@ app/
     websites/[id]/search-performance-analysis/  manual ANALYSE_SEARCH_PERFORMANCE trigger
     websites/[id]/serp-fetch/  manual FETCH_SERP_RESULTS trigger
     content-briefs/[id]/generate/  manual GENERATE_CONTENT trigger
+    content-versions/[id]/publish/  manual PUBLISH_CONTENT trigger
     auth/google-search-console/start|callback/  OAuth flow (callback excluded from Basic Auth by necessity; state-signed)
 lib/
   supabase/          server-side client + generated Database types
@@ -103,6 +114,7 @@ lib/
   serp/                  SerpDataProvider abstraction, classification/scoring/aggregation/overlap/priority-tier modules (Phase 3)
   dataforseo/            shared low-level HTTP client used by both the SERP and keyword DataForSEO providers
   content/                ContentProvider abstraction, brief builder, deterministic+AI QA (qa/*), approval state-machine (Phase 4)
+  publishing/             PublishingProvider abstraction, WordPress implementation, retry-strategy/errors/url/markdown pure modules (Phase 5)
   api/                   lib/api/authorize.ts (IDOR guard), lib/api/respond.ts (route helpers)
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
@@ -112,7 +124,7 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 
 ## Database schema
 
-31 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0016_content_execution.sql`) for the full source of truth.
+34 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0019_fix_cms_credential_description_default.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
 - **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and four **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), and `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all four; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below). `business_description`/`target_audience`/`brand_voice`/`content_constraints` (Phase 4) — nullable, admin-editable business facts the content brief reads; never auto-filled, a null value is surfaced to both the human reviewer and the QA factuality check instead.
@@ -142,6 +154,9 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 - **content_jobs** (Phase 4) — one row per brief's generation *effort* (not per async step — those are ordinary `jobs` rows, linked back via `jobs.payload->>'content_job_id'`). `status` is the human-facing lifecycle (`DRAFT`/`QA_PENDING`/`QA_FAILED`/`NEEDS_REVIEW`/`READY_FOR_APPROVAL`/`APPROVED`/`REJECTED`) — independent of the underlying `jobs.status`, which only tracks whether a step is currently running (same split as `seo_audits.status` vs `jobs.status`). `attempts` counts revisions consumed.
 - **content_versions** (Phase 4) — every draft/revision, never overwritten; `unique(content_brief_id, version_number)`. SEO title/meta description/suggested URL/H1 live in `metadata` jsonb, separate from `content` (the body).
 - **content_qa_results** (Phase 4) — the full deterministic+AI QA breakdown for one version: `passed`/`score`/`deterministic_checks`/`ai_feedback`/`issues`, plus `ai_job_id` (nullable — null when the AI QA call was skipped/failed, a soft failure) and `model`/`prompt_version`. `content_versions.qa_status` is a fast summary column; this table is the detail.
+- **cms_connections** (Phase 5) — one row per website (`unique(website_id)`): `provider` (`'wordpress'` today), `base_url`, `username`, `credential_secret_id` (a **Supabase Vault** secret id — the encrypted Application Password itself lives in `vault.secrets`/`vault.decrypted_secrets`, never in this table; see "Publishing Engine" below), `status` (`pending`/`active`/`error`), `last_tested_at`/`last_test_error`. Any credential change resets `status` to `pending` — a connection is never trusted again until explicitly re-tested.
+- **content_publications** (Phase 5) — **one row per content_version's publication lineage**, updated in place across every retry (not re-inserted) — this is what makes an `external_id` learned on attempt 1 visible to attempt 2's duplicate-prevention check. `publication_type` reuses `opportunity_type` (only `CREATE_NEW_PAGE`/`OPTIMISE_EXISTING_PAGE`); `status` (`PENDING`/`PUBLISHING`/`DRAFTED`/`PUBLISHED`/`FAILED`/`UNPUBLISHED`); `provider_response_metadata` jsonb holds only a non-sensitive subset of the provider's response, never credentials.
+- **publication_audit_log** (Phase 5) — who approved/initiated what, when, and the result — `action`/`actor`/`target_url`/`result`/`failure_reason`. `actor` is currently always the constant `"admin"` (there is no per-user auth system yet — see `SECURITY_AUDIT.md`'s documented, deferred limitation); this is an honest placeholder, not fabricated per-user attribution, ready for real identity once it exists.
 
 RLS: every tenant table is scoped via an `is_org_member(organization_id)` helper function checked against `memberships` (tables without a direct `organization_id`, like `keyword_metrics`/`keyword_page_matches`, join through `keywords` to reach it). The service-role key bypasses this by design (Phase 1); it exists for Phase 2 client-facing access.
 
@@ -166,13 +181,15 @@ Copy `.env.example` to `.env.local` and fill in:
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Optional — only needed for the Competitor & SERP Intelligence integration (Phase 3). Your DataForSEO account login/password. See "Competitor & SERP Intelligence" below. Everything else works with zero DataForSEO setup. |
 | `CONTENT_PROVIDER` | Optional, defaults to `ai` — selects which `lib/content/*-provider.ts` implementation `lib/content/get-provider.ts` returns (Phase 4). Only `ai` (built on `AI_PROVIDER` above) exists today. |
 
+**No new environment variable for Phase 5.** WordPress credentials are per-website, entered through the admin UI (Publishing page) and encrypted via Supabase Vault — already installed on this project, so there's no key to generate or manage. See "Publishing Engine" below.
+
 ## Local development
 
 ```bash
 npm install
 npm run dev       # http://localhost:3000 (admin at /admin, prompts for ADMIN_PASSWORD via Basic Auth)
 npm run typecheck
-npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword/search-console/search-performance/serp/dataforseo/content modules, API authorization guard (node:test)
+npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword/search-console/search-performance/serp/dataforseo/content/publishing modules, API authorization guard (node:test)
 ```
 
 ## Supabase setup
@@ -507,9 +524,59 @@ curl -X POST http://localhost:3000/api/content-briefs/<brief-id>/generate -u adm
 
 Draining the queue (`npm run jobs:sweep`, the automation page's "Process pending jobs", or the scheduler sweep) is required between stages, same as every other job pipeline in this platform.
 
-## What remains for Phase 5+
+## Publishing Engine (Phase 5)
 
-- **Publishing** — WordPress/Webflow/Shopify integration, automatic page replacement, automatic content deletion — explicitly out of scope for Phase 4; `APPROVED` only means "ready," nothing is pushed anywhere yet.
+Turns `APPROVED` content into a real, public page on the client's own WordPress site. The rule that shapes every design decision in this phase: **there is no path from AI-generated content to a live page without an explicit human "Publish" click**, and every publish request re-verifies `content_jobs.status === 'APPROVED'` server-side, from the database, on every single attempt — never trusted from the browser, never cached from a moment ago.
+
+### Credential storage
+
+The spec required identifying the safest credential-storage mechanism available in the existing architecture, or flagging the requirement rather than introducing a plaintext workaround. One *is* available: **Supabase Vault** (the `vault` schema + `pgsodium`) was already installed on this project — confirmed via `list_extensions` before writing any migration. Four `SECURITY DEFINER` wrapper functions in `public` (`cms_credential_create/read/update/delete`, migration `0018`, granted to `service_role` only — PostgREST can't reach the `vault` schema directly) bridge the app's existing `supabaseAdmin()` client to it. A WordPress Application Password is encrypted the moment it's submitted; `cms_connections.credential_secret_id` only ever stores a reference (a `vault.secrets.id`), never the secret itself — it doesn't appear in a plain `select *`, doesn't appear in any admin page after saving, and is only ever decrypted server-side, in-process, immediately before a WordPress API call (`lib/db/cms-connections.ts`'s `getDecryptedCredential`).
+
+### `PublishingProvider` abstraction
+
+`lib/publishing/provider.ts` — `testConnection`/`createDraft`/`publish`/`update`/`getPublishedPage`/`findBySlug`/`unpublish`. `lib/publishing/wordpress-provider.ts` is the first implementation: hand-rolled `fetch` (no SDK, same philosophy as the crawler/Search Console/DataForSEO clients) against the official WordPress REST API's `/wp/v2/pages` resource, authenticated via HTTP Basic Auth with a WordPress **Application Password** — WordPress's own official mechanism for exactly this, never the account's real login password. `lib/publishing/get-provider.ts` is a per-call factory (unlike `lib/ai/get-provider.ts`'s process-wide singleton) since credentials are per-website. Adding Webflow/Shopify/a custom CMS later is one more provider file and one more factory branch — no call-site changes.
+
+### Duplicate-publication prevention
+
+The spec calls this "critical," so it gets two independent layers:
+
+1. `jobs.idempotency_key = "{CREATE_DRAFT|PUBLISH_CONTENT}:{content_version_id}"` — the same partial-unique-index mechanism every other job type already uses, preventing two concurrent jobs for the same version.
+2. `content_publications` is **one row per content_version's publication lineage**, updated in place across every retry (never re-inserted) — an `external_id` learned on attempt 1 is exactly what attempt 2 sees. Before ever creating a page on a retry (`jobs.retry_count > 0`) with no known `external_id`, the handler calls `provider.findBySlug()` first — if WordPress already has a page at that exact slug (an earlier attempt that timed out or errored ambiguously, but actually succeeded), it's *adopted* instead of duplicated. The decision itself is a pure, unit-tested function (`lib/publishing/retry-strategy.ts`'s `decidePublishAction`), independent of any live WordPress call.
+
+### Permanent vs. retryable failures
+
+`lib/publishing/errors.ts`'s `mapWordPressError` classifies 401/403 (bad credentials), 404 (target missing), and 409 (conflict) as **permanent**; 429 (rate limit), 5xx, and network timeouts as **retryable**. Content-not-APPROVED, an org/website mismatch, and an inactive CMS connection are also permanent. A new, generic job-engine primitive makes this actionable: `lib/jobs/types.ts`'s `PermanentJobError` — any handler can throw it to mean "this will never succeed on retry," and `lib/jobs/runner.ts`'s `processJob` jumps `retry_count` straight to `max_retries` when it catches one, so `lib/jobs/policy.ts`'s existing `isRetryEligible` naturally never fires again. No second retry system, one small hook into the one that already existed.
+
+### `CREATE_DRAFT` and `PUBLISH_CONTENT`
+
+Two explicit job types, never auto-chained into each other (`getNextJobType` returns `null` for both — many `content_publications` can be in flight per website, same reasoning as Phase 4's content jobs). `CREATE_DRAFT` (`lib/jobs/handlers/create-draft.ts`) always forces WordPress `status: draft`, at two layers — the handler and the provider both refuse to publish, so a draft is never publicly visible even if a caller passed the wrong flag. `PUBLISH_CONTENT` (`lib/jobs/handlers/publish-content.ts`) checks whether a `CREATE_DRAFT` already produced an `external_id` for this same publication row and, if so, flips that *same* WordPress page from draft to published — never a second page. Both share their re-validation logic (`lib/jobs/handlers/publishing-shared.ts`'s `loadAndValidatePublishingContext`) so the checks can't drift between the two.
+
+### Existing pages vs. new pages
+
+`content_briefs.content_type` (already known from Phase 4) decides everything: for `OPTIMISE_EXISTING_PAGE`, `lib/publishing/url.ts`'s `resolvePublicationTargetUrl` always uses the brief's real `existingPage.url` — **never** the AI's own `targetUrl` recommendation, even when they differ — and the corresponding WordPress page is *looked up* by slug before any update; not found is a permanent, human-facing error, never a silent fallback to creating a new page. For `CREATE_NEW_PAGE`, the brief's recommended slug is used, and an `update()` call never sends a `slug` field at all — an existing page's URL is never changed by a content update, regardless of what any AI recommendation says.
+
+### Metadata mapping
+
+Title → WordPress `title`; body (Markdown, from `content_versions.content`) → WordPress `content` via `lib/publishing/markdown.ts`'s small pure converter (headings/paragraphs/bold/italic/links/lists — exactly what the content-generation prompt produces, not a general CommonMark implementation); `metadata.metaDescription` → WordPress's *native* `excerpt` field. Per spec's explicit instruction not to invent plugin APIs: **Yoast/RankMath meta fields are not set** (that would need a verified, separate integration), and featured image/categories/tags are not implemented — Phase 4's content system has no image pipeline or taxonomy data to map yet, so there's nothing to wire up.
+
+### Audit trail
+
+`publication_audit_log` (migration `0018`) records every `CONTENT_APPROVED`/`DRAFT_CREATED`/`DRAFT_CREATE_FAILED`/`PUBLISHED`/`PUBLISH_FAILED` event against its `content_version_id`, with the target URL and a failure reason where relevant. `actor` is currently always the constant `"admin"` — there is no per-user auth system yet (`SECURITY_AUDIT.md`'s documented, deferred limitation) — recorded honestly rather than inventing per-user attribution; the table is ready for real identity once that exists.
+
+### Testing the pipeline
+
+Admin UI: connect WordPress on a website's Publishing page (`/admin/websites/[id]/publishing`) with its site URL, username, and an **Application Password** (WordPress Admin → Users → Profile → Application Passwords) — click **Test Connection**. On an approved content brief's page, the Publishing section shows connection status and offers **Create Draft** / **Publish**, both disabled unless the content is `APPROVED` and the connection is `active`; a `FAILED` publication relabels the same buttons as **Retry**. Via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/content-versions/<version-id>/publish -u admin:$ADMIN_PASSWORD
+```
+
+## What remains for Phase 6+
+
+- **Webflow, Shopify, and other `PublishingProvider` implementations** — the interface was designed for this from day one; WordPress is the first, not the only, implementation.
+- **Closing the loop with Search Console** — `content_publications.published_at`/`target_url` are stored precisely so a future phase can join them against real GSC performance for that URL; the measurement/optimisation loop itself isn't built yet.
+- **SEO-plugin integration** (Yoast/RankMath meta fields) — deliberately not implemented in Phase 5 (see "Metadata mapping" above); would need its own verified integration, not an assumption about which plugin a client runs.
+- **Featured image/categories/tags** for publishing, once Phase 4's content system actually produces image/taxonomy data to map.
 - A real `CvCentralContentProvider` (or equivalent) once an actual content-writing system/API becomes reachable — `AiContentProvider` is a deliberate placeholder behind the same interface, not a permanent choice.
 - Feeding real Search Console/SERP position data into `keyword_opportunities.difficulty_score`, replacing the AI-estimated placeholder now that real ranking data exists from two sources.
 - Splitting `ANALYSE_WEBSITE` into its own richer step now that real keyword and competitor data exist.

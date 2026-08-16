@@ -11,10 +11,15 @@ import { runScheduledSweep } from "@/lib/jobs/scheduler";
 import { selectSearchConsoleSite, disconnectSearchConsole } from "@/lib/db/search-console";
 import { updateSearchPerformanceOpportunityStatus } from "@/lib/db/search-performance";
 import { assertWebsiteBelongsToOrganization, assertOwnedByOrganization } from "@/lib/api/authorize";
-import { getContentBrief, getContentJob, findActiveContentJobForBrief, insertContentJob, updateContentJobStatus } from "@/lib/db/content";
+import { getContentBrief, getContentJob, getContentVersionById, getLatestContentVersionForJob, findActiveContentJobForBrief, insertContentJob, updateContentJobStatus } from "@/lib/db/content";
 import { createContentBriefForOpportunity } from "@/lib/content/create-brief";
 import { getContentProvider } from "@/lib/content/get-provider";
 import { canTransitionContentJob } from "@/lib/content/state-machine";
+import { upsertCmsConnection, getCmsConnectionForWebsite, markConnectionTested, getDecryptedCredential } from "@/lib/db/cms-connections";
+import { getOrCreatePublicationForVersion } from "@/lib/db/content-publications";
+import { recordPublicationAuditEvent } from "@/lib/db/publication-audit";
+import { createPublishingProvider } from "@/lib/publishing/get-provider";
+import { isContentApprovedForPublication } from "@/lib/publishing/eligibility";
 import type { TaskStatus, OpportunityStatus } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
@@ -325,6 +330,22 @@ export async function approveContentAction(formData: FormData): Promise<void> {
   }
 
   await updateContentJobStatus(contentJobId, "APPROVED", { completedAt: new Date().toISOString() });
+
+  // Additive audit-log write (Phase 5) — "who approved" is now recorded
+  // ready for Phase 5's publishing actions to reference. Best-effort: a
+  // missing version here would be unusual, not a reason to fail the approval
+  // itself, so this only logs when one is actually found.
+  const approvedVersion = await getLatestContentVersionForJob(contentJobId);
+  if (approvedVersion) {
+    await recordPublicationAuditEvent({
+      organizationId: contentJob!.organization_id,
+      websiteId: contentJob!.website_id,
+      contentVersionId: approvedVersion.id,
+      action: "CONTENT_APPROVED",
+      result: "success",
+    });
+  }
+
   revalidatePath(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
   redirect(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
 }
@@ -343,4 +364,120 @@ export async function rejectContentAction(formData: FormData): Promise<void> {
   await updateContentJobStatus(contentJobId, "REJECTED", { completedAt: new Date().toISOString() });
   revalidatePath(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
   redirect(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Publishing Engine (Phase 5). Every action re-derives organization_id from
+// the resource itself (assertWebsiteBelongsToOrganization /
+// assertOwnedByOrganization — SECURITY_AUDIT.md's pattern) and — for
+// createDraftAction/publishContentAction — re-checks APPROVED status
+// server-side even though the job handler re-checks it again too (defence
+// in depth, and a fast/clear rejection before a job is even queued).
+// ---------------------------------------------------------------------------
+
+/** Connects (or re-connects, overwriting the stored credential) a
+ * website's CMS. The Application Password is encrypted via Supabase Vault
+ * before it ever touches a table (see lib/db/cms-connections.ts) — this
+ * action never logs it and never returns it in any response. */
+export async function connectCmsAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  const baseUrl = String(formData.get("base_url") ?? "").trim();
+  const username = String(formData.get("username") ?? "").trim();
+  const applicationPassword = String(formData.get("application_password") ?? "");
+  if (!baseUrl || !username || !applicationPassword) {
+    throw new Error("WordPress site URL, username, and Application Password are all required.");
+  }
+
+  const website = await getWebsite(websiteId);
+  const realOrganizationId = assertWebsiteBelongsToOrganization(website, organizationId, websiteId);
+
+  await upsertCmsConnection({ organizationId: realOrganizationId, websiteId, baseUrl, username, applicationPassword });
+  revalidatePath(`/admin/websites/${websiteId}/publishing`);
+  redirect(`/admin/websites/${websiteId}/publishing`);
+}
+
+export async function testCmsConnectionAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const website = await getWebsite(websiteId);
+  assertWebsiteBelongsToOrganization(website, organizationId, websiteId);
+
+  const connection = await getCmsConnectionForWebsite(websiteId);
+  if (!connection) throw new Error("No CMS connection is configured for this website yet.");
+
+  const applicationPassword = await getDecryptedCredential(connection.credential_secret_id);
+  const provider = createPublishingProvider({ provider: connection.provider, baseUrl: connection.base_url, username: connection.username, applicationPassword });
+  const result = await provider.testConnection();
+  await markConnectionTested(connection.id, result.ok, result.ok ? null : result.message);
+
+  revalidatePath(`/admin/websites/${websiteId}/publishing`);
+  redirect(`/admin/websites/${websiteId}/publishing`);
+}
+
+/** Shared by createDraftAction/publishContentAction: every re-check the job
+ * handler will also perform, done here first so a bad request never even
+ * reaches the job queue. */
+async function loadApprovedPublicationTarget(formData: FormData) {
+  const versionId = String(formData.get("content_version_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const website = await getWebsite(websiteId);
+  const realOrganizationId = assertWebsiteBelongsToOrganization(website, organizationId, websiteId);
+
+  const version = await getContentVersionById(versionId);
+  assertOwnedByOrganization(version, realOrganizationId, "ContentVersion", versionId);
+
+  const contentJob = await getContentJob(version!.content_job_id);
+  if (!contentJob || !isContentApprovedForPublication(contentJob.status)) {
+    throw new Error(`Content must be APPROVED before publishing (current status: ${contentJob?.status ?? "unknown"}).`);
+  }
+
+  const brief = await getContentBrief(version!.content_brief_id);
+  if (!brief) throw new Error("Content brief not found.");
+
+  const publication = await getOrCreatePublicationForVersion({
+    organizationId: realOrganizationId,
+    websiteId,
+    contentVersionId: versionId,
+    publicationType: brief.content_type as "CREATE_NEW_PAGE" | "OPTIMISE_EXISTING_PAGE",
+    targetUrl: brief.target_url,
+  });
+
+  return { versionId, websiteId, organizationId: realOrganizationId, briefId: brief.id, publicationId: publication.id };
+}
+
+/** Publishes to the connected CMS as a draft — never publicly visible (see
+ * lib/publishing/wordpress-provider.ts's createDraft). Also doubles as the
+ * "Retry" action when the last attempt FAILED — the job's own
+ * retry-strategy logic (lib/publishing/retry-strategy.ts) decides whether
+ * to adopt an already-created page instead of making a duplicate. */
+export async function createDraftAction(formData: FormData): Promise<void> {
+  const { websiteId, organizationId, briefId, publicationId } = await loadApprovedPublicationTarget(formData);
+  await triggerJob({
+    organizationId,
+    websiteId,
+    jobType: "CREATE_DRAFT",
+    payload: { content_publication_id: publicationId },
+    idempotencyKey: `CREATE_DRAFT:${formData.get("content_version_id")}`,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content/${briefId}`);
+  redirect(`/admin/websites/${websiteId}/content/${briefId}`);
+}
+
+/** The only action that can make content publicly visible. Also doubles as
+ * "Retry Failed Publication" when the last attempt FAILED. */
+export async function publishContentAction(formData: FormData): Promise<void> {
+  const { websiteId, organizationId, briefId, publicationId } = await loadApprovedPublicationTarget(formData);
+  await triggerJob({
+    organizationId,
+    websiteId,
+    jobType: "PUBLISH_CONTENT",
+    payload: { content_publication_id: publicationId },
+    idempotencyKey: `PUBLISH_CONTENT:${formData.get("content_version_id")}`,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content/${briefId}`);
+  redirect(`/admin/websites/${websiteId}/content/${briefId}`);
 }

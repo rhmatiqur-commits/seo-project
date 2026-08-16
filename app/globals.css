@@ -43,11 +43,11 @@ input, select, textarea {
   font-size: 0.9rem;
 }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; color: white; }
-.badge.critical, .badge.FAILED, .badge.QA_FAILED, .badge.REJECTED, .badge.blocking { background: #b91c1c; }
+.badge.critical, .badge.FAILED, .badge.QA_FAILED, .badge.REJECTED, .badge.blocking, .badge.error, .badge.UNPUBLISHED { background: #b91c1c; }
 .badge.high, .badge.NEEDS_REVIEW, .badge.warning { background: #ea580c; }
-.badge.medium, .badge.PROCESSING, .badge.PENDING, .badge.QA_PENDING, .badge.SUBMITTED { background: #ca8a04; }
-.badge.low, .badge.DRAFT { background: #6b7280; }
-.badge.COMPLETED, .badge.completed, .badge.new, .badge.APPROVED, .badge.PASSED { background: #15803d; }
+.badge.medium, .badge.PROCESSING, .badge.PENDING, .badge.QA_PENDING, .badge.SUBMITTED, .badge.pending, .badge.PUBLISHING { background: #ca8a04; }
+.badge.low, .badge.DRAFT, .badge.DRAFTED { background: #6b7280; }
+.badge.COMPLETED, .badge.completed, .badge.new, .badge.APPROVED, .badge.PASSED, .badge.active, .badge.PUBLISHED { background: #15803d; }
 .badge.CANCELLED, .badge.cancelled { background: #9ca3af; }
 .badge.READY_FOR_APPROVAL { background: #0b5fff; }
 .muted { color: #666; font-size: 0.85rem; }

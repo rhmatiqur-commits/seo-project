@@ -198,6 +198,13 @@ export function getNextJobType(jobType: JobType): JobType | null {
       // content handler creates its own next stage directly, scoped by
       // content_job_id — see lib/jobs/handlers/{generate,qa,revise}-content.ts.
       return null;
+    case "CREATE_DRAFT":
+    case "PUBLISH_CONTENT":
+      // Same reasoning as the content jobs above, one level further out:
+      // many content_publications can be in flight per website at once, and
+      // Create Draft / Publish are two explicit, independently human-
+      // triggered actions (Phase 5), never auto-chained into each other.
+      return null;
     default:
       return null;
   }

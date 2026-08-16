@@ -199,6 +199,11 @@ test("getNextJobType: GENERATE_CONTENT/QA_CONTENT/REVISE_CONTENT are never auto-
   assert.equal(getNextJobType("REVISE_CONTENT"), null);
 });
 
+test("getNextJobType: CREATE_DRAFT/PUBLISH_CONTENT are never auto-chained — two explicit, independently human-triggered actions (Phase 5)", () => {
+  assert.equal(getNextJobType("CREATE_DRAFT"), null);
+  assert.equal(getNextJobType("PUBLISH_CONTENT"), null);
+});
+
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---
 
 test("shouldAdvancePipeline: only COMPLETED jobs advance the pipeline", () => {

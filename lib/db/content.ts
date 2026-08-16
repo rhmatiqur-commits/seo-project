@@ -185,6 +185,30 @@ export async function getLatestContentVersionForBrief(contentBriefId: string): P
   return data;
 }
 
+/** The latest version produced by a specific content_job (as opposed to
+ * getLatestContentVersionForBrief, which is the brief's latest version
+ * across every content_job attempt) — used by Phase 5's approveContentAction
+ * to log an audit event against the exact version that was just approved. */
+export async function getLatestContentVersionForJob(contentJobId: string): Promise<ContentVersionRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("content_versions")
+    .select("*")
+    .eq("content_job_id", contentJobId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function getContentVersionById(id: string): Promise<ContentVersionRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("content_versions").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function listContentVersionsForBrief(contentBriefId: string): Promise<ContentVersionRow[]> {
   const db = supabaseAdmin();
   const { data, error } = await db.from("content_versions").select("*").eq("content_brief_id", contentBriefId).order("version_number", { ascending: true });
