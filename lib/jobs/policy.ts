@@ -188,6 +188,16 @@ export function getNextJobType(jobType: JobType): JobType | null {
       // into ANALYSE_SEARCH_PERFORMANCE, which would needlessly redo the 7
       // existing detectors on every competitor-gap run.
       return null;
+    case "GENERATE_CONTENT":
+    case "QA_CONTENT":
+    case "REVISE_CONTENT":
+      // Deliberately NOT chained through this generic, website-scoped
+      // mechanism (idempotency_key = "{nextType}:{websiteId}" would collide
+      // across two different content_briefs on the same website — many can
+      // be in flight at once, unlike the rest of this pipeline). Each
+      // content handler creates its own next stage directly, scoped by
+      // content_job_id — see lib/jobs/handlers/{generate,qa,revise}-content.ts.
+      return null;
     default:
       return null;
   }

@@ -10,7 +10,11 @@ import { processPendingJobs } from "@/lib/jobs/runner";
 import { runScheduledSweep } from "@/lib/jobs/scheduler";
 import { selectSearchConsoleSite, disconnectSearchConsole } from "@/lib/db/search-console";
 import { updateSearchPerformanceOpportunityStatus } from "@/lib/db/search-performance";
-import { assertWebsiteBelongsToOrganization } from "@/lib/api/authorize";
+import { assertWebsiteBelongsToOrganization, assertOwnedByOrganization } from "@/lib/api/authorize";
+import { getContentBrief, getContentJob, findActiveContentJobForBrief, insertContentJob, updateContentJobStatus } from "@/lib/db/content";
+import { createContentBriefForOpportunity } from "@/lib/content/create-brief";
+import { getContentProvider } from "@/lib/content/get-provider";
+import { canTransitionContentJob } from "@/lib/content/state-machine";
 import type { TaskStatus, OpportunityStatus } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
@@ -134,6 +138,27 @@ export async function updateSerpLocationAction(formData: FormData): Promise<void
   redirect(`/admin/websites/${websiteId}/competitors`);
 }
 
+/** Sets the business-fact fields the content brief reads (Phase 4) —
+ * business_description/target_audience/brand_voice/content_constraints.
+ * Blank fields are stored as null, never a placeholder string; the brief
+ * builder surfaces a null field as an explicit missingBusinessInfo entry
+ * rather than inventing one (see lib/content/build-brief.ts). */
+export async function updateContentProfileAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const businessDescription = String(formData.get("business_description") ?? "").trim();
+  const targetAudience = String(formData.get("target_audience") ?? "").trim();
+  const brandVoice = String(formData.get("brand_voice") ?? "").trim();
+  const contentConstraints = String(formData.get("content_constraints") ?? "").trim();
+  await updateWebsite(websiteId, {
+    business_description: businessDescription || null,
+    target_audience: targetAudience || null,
+    brand_voice: brandVoice || null,
+    content_constraints: contentConstraints || null,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content`);
+  redirect(`/admin/websites/${websiteId}/content`);
+}
+
 export async function updateSearchPerformanceOpportunityStatusAction(formData: FormData): Promise<void> {
   const opportunityId = String(formData.get("opportunity_id"));
   const websiteId = String(formData.get("website_id"));
@@ -183,4 +208,139 @@ export async function processPendingJobsAction(): Promise<void> {
   await processPendingJobs();
   revalidatePath("/admin/automation");
   redirect("/admin/automation");
+}
+
+// ---------------------------------------------------------------------------
+// Content Execution (Phase 4). content_briefs/content_jobs are their own
+// resources (not website_id-keyed the way triggerAndReturn's jobs are) — see
+// SECURITY_AUDIT.md's derive-organization_id-from-the-resource pattern,
+// applied here via the generalised assertOwnedByOrganization.
+// ---------------------------------------------------------------------------
+
+/** Builds a content brief from an eligible seo_opportunities row
+ * (CREATE_NEW_PAGE/OPTIMISE_EXISTING_PAGE only — createContentBriefForOpportunity
+ * throws otherwise) and redirects to its review page. Synchronous: brief
+ * assembly is a pure read+compute, no AI call (see lib/content/create-brief.ts). */
+export async function createContentBriefAction(formData: FormData): Promise<void> {
+  const opportunityId = String(formData.get("opportunity_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const website = await getWebsite(websiteId);
+  assertWebsiteBelongsToOrganization(website, organizationId, websiteId);
+
+  const brief = await createContentBriefForOpportunity(opportunityId);
+  revalidatePath(`/admin/websites/${websiteId}/content`);
+  redirect(`/admin/websites/${websiteId}/content/${brief.id}`);
+}
+
+/** Starts (or resumes into) content generation for a brief: creates a
+ * content_jobs row if none is currently active for it (duplicate-generation
+ * prevention — see lib/db/content.ts's findActiveContentJobForBrief) and
+ * triggers GENERATE_CONTENT, scoped to that content_job_id. */
+export async function generateContentAction(formData: FormData): Promise<void> {
+  const contentBriefId = String(formData.get("content_brief_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const brief = await getContentBrief(contentBriefId);
+  assertOwnedByOrganization(brief, organizationId, "ContentBrief", contentBriefId);
+
+  const active = await findActiveContentJobForBrief(contentBriefId);
+  const contentJob = active ?? (await insertContentJob({ organizationId, websiteId, contentBriefId, provider: getContentProvider().name }));
+
+  await triggerJob({
+    organizationId,
+    websiteId,
+    jobType: "GENERATE_CONTENT",
+    payload: { content_job_id: contentJob.id },
+    idempotencyKey: `GENERATE_CONTENT:${contentJob.id}`,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content/${contentBriefId}`);
+  redirect(`/admin/websites/${websiteId}/content/${contentBriefId}`);
+}
+
+/** Manually (re-)triggers QA_CONTENT for a content_job currently awaiting
+ * QA on its latest version — mirrors what GENERATE_CONTENT/REVISE_CONTENT
+ * already chain into automatically, exposed as a recovery/testing control. */
+export async function runContentQaAction(formData: FormData): Promise<void> {
+  const contentJobId = String(formData.get("content_job_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const contentJob = await getContentJob(contentJobId);
+  assertOwnedByOrganization(contentJob, organizationId, "ContentJob", contentJobId);
+  if (contentJob!.status !== "QA_PENDING") throw new Error(`content_job ${contentJobId} is not awaiting QA (status: ${contentJob!.status}).`);
+
+  await triggerJob({
+    organizationId,
+    websiteId,
+    jobType: "QA_CONTENT",
+    payload: { content_job_id: contentJobId },
+    idempotencyKey: `QA_CONTENT:${contentJobId}`,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+  redirect(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+}
+
+/** Human-triggered revision — valid from QA_FAILED (the automatic path also
+ * uses this handler), NEEDS_REVIEW, or READY_FOR_APPROVAL (explicit
+ * override, per lib/content/state-machine.ts). Optional free-text
+ * instructions are merged into the AI revision prompt alongside the latest
+ * QA feedback. */
+export async function reviseContentAction(formData: FormData): Promise<void> {
+  const contentJobId = String(formData.get("content_job_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  const additionalInstructions = String(formData.get("additional_instructions") ?? "").trim();
+
+  const contentJob = await getContentJob(contentJobId);
+  assertOwnedByOrganization(contentJob, organizationId, "ContentJob", contentJobId);
+  if (!canTransitionContentJob(contentJob!.status, "QA_PENDING")) {
+    throw new Error(`content_job ${contentJobId} cannot be revised from status ${contentJob!.status}.`);
+  }
+
+  await triggerJob({
+    organizationId,
+    websiteId,
+    jobType: "REVISE_CONTENT",
+    payload: { content_job_id: contentJobId, ...(additionalInstructions ? { additional_instructions: additionalInstructions } : {}) },
+    idempotencyKey: `REVISE_CONTENT:${contentJobId}`,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+  redirect(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+}
+
+/** Phase 4's approval is terminal here — "approved for Phase 5 publishing,"
+ * never an automatic publish. */
+export async function approveContentAction(formData: FormData): Promise<void> {
+  const contentJobId = String(formData.get("content_job_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const contentJob = await getContentJob(contentJobId);
+  assertOwnedByOrganization(contentJob, organizationId, "ContentJob", contentJobId);
+  if (!canTransitionContentJob(contentJob!.status, "APPROVED")) {
+    throw new Error(`content_job ${contentJobId} cannot be approved from status ${contentJob!.status}.`);
+  }
+
+  await updateContentJobStatus(contentJobId, "APPROVED", { completedAt: new Date().toISOString() });
+  revalidatePath(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+  redirect(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+}
+
+export async function rejectContentAction(formData: FormData): Promise<void> {
+  const contentJobId = String(formData.get("content_job_id"));
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+
+  const contentJob = await getContentJob(contentJobId);
+  assertOwnedByOrganization(contentJob, organizationId, "ContentJob", contentJobId);
+  if (!canTransitionContentJob(contentJob!.status, "REJECTED")) {
+    throw new Error(`content_job ${contentJobId} cannot be rejected from status ${contentJob!.status}.`);
+  }
+
+  await updateContentJobStatus(contentJobId, "REJECTED", { completedAt: new Date().toISOString() });
+  revalidatePath(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
+  redirect(`/admin/websites/${websiteId}/content/${contentJob!.content_brief_id}`);
 }

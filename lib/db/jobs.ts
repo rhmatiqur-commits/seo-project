@@ -70,6 +70,32 @@ export async function listJobsForWebsite(websiteId: string, limit = 20): Promise
   return data;
 }
 
+/**
+ * Atomically transitions a job from PENDING to PROCESSING — the actual fix
+ * for "two concurrent processJob(sameId) calls both run the handler." A
+ * plain `markJobStatus(id, "PROCESSING")` unconditionally overwrites status
+ * regardless of what it currently is, so two callers who both read the job
+ * as PENDING (e.g. `triggerJob`'s fire-and-forget call racing a subsequent
+ * `processPendingJobs()` sweep — found via Phase 4's GENERATE_CONTENT
+ * producing a duplicate, never-QA'd content_versions row during live
+ * testing) would both pass the guard and both execute the handler. This
+ * instead conditions the UPDATE on `status = 'PENDING'`: only the caller
+ * that wins the race gets a row back; every other concurrent caller gets
+ * `null` and must skip running the handler.
+ */
+export async function claimJob(id: string): Promise<JobRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("jobs")
+    .update({ status: "PROCESSING", started_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "PENDING")
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function markJobStatus(
   id: string,
   status: JobStatus,

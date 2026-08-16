@@ -144,3 +144,41 @@ export async function listCompetitorPagesForWebsite(websiteId: string): Promise<
   if (error) throw error;
   return (data as unknown as (CompetitorPageRow & { competitor_domains: unknown })[]).map(({ competitor_domains, ...rest }) => rest as CompetitorPageRow);
 }
+
+export interface CompetitorPageWithDomain {
+  domain: string;
+  classification: CompetitorClassification;
+  url: string;
+  title: string | null;
+  wordCount: number | null;
+  majorTopics: string[];
+}
+
+/** Same rows as listCompetitorPagesForWebsite, but keeping the parent
+ * domain/classification — Phase 4's content-brief builder needs the domain
+ * string itself (structured metadata only, never body text, same rule as
+ * competitor_pages everywhere else). */
+export async function listCompetitorPagesWithDomainForWebsite(websiteId: string): Promise<CompetitorPageWithDomain[]> {
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("competitor_pages")
+    .select("url, title, word_count, major_topics, competitor_domains!inner(website_id, domain, classification)")
+    .eq("competitor_domains.website_id", websiteId);
+  if (error) throw error;
+  return (
+    data as unknown as {
+      url: string;
+      title: string | null;
+      word_count: number | null;
+      major_topics: string[];
+      competitor_domains: { domain: string; classification: CompetitorClassification };
+    }[]
+  ).map((row) => ({
+    domain: row.competitor_domains.domain,
+    classification: row.competitor_domains.classification,
+    url: row.url,
+    title: row.title,
+    wordCount: row.word_count,
+    majorTopics: row.major_topics,
+  }));
+}

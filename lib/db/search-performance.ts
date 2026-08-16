@@ -88,6 +88,18 @@ export async function markSearchPerformancePromoted(id: string, seoOpportunityId
   return data;
 }
 
+/** The detector-level row a promoted seo_opportunities row originated from,
+ * if any — Phase 1/2B-originated opportunities (no detector pipeline
+ * involved) have none. Used by Phase 4's content-brief builder to pull
+ * detector_type/signals into the brief when available (see
+ * lib/content/build-brief.ts's `detector` field). */
+export async function getSearchPerformanceOpportunityBySeoOpportunityId(seoOpportunityId: string): Promise<OpportunityRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("search_performance_opportunities").select("*").eq("seo_opportunity_id", seoOpportunityId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function updateSearchPerformanceOpportunityStatus(id: string, status: OpportunityStatus): Promise<OpportunityRow> {
   const db = supabaseAdmin();
   const { data, error } = await db.from("search_performance_opportunities").update({ status }).eq("id", id).select().single();

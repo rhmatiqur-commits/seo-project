@@ -29,15 +29,29 @@ export interface OwnedByOrganization {
 /** Throws OrganizationMismatchError if `resource.organization_id` doesn't
  * match `expectedOrganizationId`. Returns the resource's real
  * organization_id on success — callers should use THIS value going forward,
- * never the client-supplied one that was being checked. */
-export function assertWebsiteBelongsToOrganization(website: OwnedByOrganization | null, expectedOrganizationId: string | null | undefined, websiteId: string): string {
-  if (!website) throw new OrganizationMismatchError("Website", websiteId);
-  // The website's own organization_id is always the source of truth; a
-  // mismatched (or missing) expectedOrganizationId is a signal worth
-  // surfacing rather than silently overriding, but never fatal to the
-  // legitimate case where the caller simply omitted it.
-  if (expectedOrganizationId && expectedOrganizationId !== website.organization_id) {
-    throw new OrganizationMismatchError("Website", websiteId);
+ * never the client-supplied one that was being checked.
+ *
+ * Generic over `resourceType` (Phase 4 introduced content_briefs/content_jobs
+ * routes that need the exact same IDOR guard as websites) — the resource's
+ * own organization_id is always the source of truth; a mismatched (or
+ * missing) expectedOrganizationId is a signal worth surfacing rather than
+ * silently overriding, but never fatal to the legitimate case where the
+ * caller simply omitted it. */
+export function assertOwnedByOrganization(
+  resource: OwnedByOrganization | null,
+  expectedOrganizationId: string | null | undefined,
+  resourceType: string,
+  resourceId: string
+): string {
+  if (!resource) throw new OrganizationMismatchError(resourceType, resourceId);
+  if (expectedOrganizationId && expectedOrganizationId !== resource.organization_id) {
+    throw new OrganizationMismatchError(resourceType, resourceId);
   }
-  return website.organization_id;
+  return resource.organization_id;
+}
+
+/** Thin, name-preserving wrapper over assertOwnedByOrganization — every
+ * existing call site keeps working unchanged. */
+export function assertWebsiteBelongsToOrganization(website: OwnedByOrganization | null, expectedOrganizationId: string | null | undefined, websiteId: string): string {
+  return assertOwnedByOrganization(website, expectedOrganizationId, "Website", websiteId);
 }

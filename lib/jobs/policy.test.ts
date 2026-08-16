@@ -193,6 +193,12 @@ test("getNextJobType: FETCH_SERP_RESULTS -> ANALYSE_COMPETITORS -> ANALYSE_COMPE
   assert.equal(getNextJobType("ANALYSE_COMPETITOR_GAPS"), null);
 });
 
+test("getNextJobType: GENERATE_CONTENT/QA_CONTENT/REVISE_CONTENT are never auto-chained by the generic website-scoped mechanism (Phase 4 — each handler self-chains, scoped by content_job_id)", () => {
+  assert.equal(getNextJobType("GENERATE_CONTENT"), null);
+  assert.equal(getNextJobType("QA_CONTENT"), null);
+  assert.equal(getNextJobType("REVISE_CONTENT"), null);
+});
+
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---
 
 test("shouldAdvancePipeline: only COMPLETED jobs advance the pipeline", () => {

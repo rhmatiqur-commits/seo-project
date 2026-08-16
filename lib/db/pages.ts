@@ -48,6 +48,13 @@ export async function listPagesForWebsite(websiteId: string): Promise<WebsitePag
   return data as unknown as WebsitePage[];
 }
 
+export async function getPageById(id: string): Promise<WebsitePage | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("website_pages").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data as unknown as WebsitePage | null;
+}
+
 export async function listLinksForWebsite(websiteId: string) {
   const db = supabaseAdmin();
   const { data, error } = await db.from("page_links").select("*").eq("website_id", websiteId);

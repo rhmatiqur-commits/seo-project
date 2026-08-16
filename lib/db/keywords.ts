@@ -53,6 +53,13 @@ export async function listKeywordsForWebsite(websiteId: string): Promise<Keyword
   return data;
 }
 
+export async function getKeyword(id: string): Promise<KeywordRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("keywords").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 /** Latest real provider search_volume per keyword — Map<keywordId, searchVolume|null>.
  * Missing from the map entirely (rather than present with null) means no
  * metrics row was ever collected for that keyword. Used by
@@ -108,6 +115,35 @@ export async function insertKeywordMetrics(input: {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Most recent keyword_metrics row for one keyword (full shape — search
+ * volume/CPC/competition), or null if none have ever been collected. Used
+ * by Phase 4's content-brief builder (lib/content/create-brief.ts). */
+export async function getLatestKeywordMetrics(keywordId: string): Promise<KeywordMetricsRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("keyword_metrics")
+    .select("*")
+    .eq("keyword_id", keywordId)
+    .order("measured_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/** keyword_ids linked to an opportunity via Phase 1's opportunity_keywords
+ * join table (populated by the AI opportunity engine and Phase 2B's
+ * keyword-discovery promotion path — not by the Phase 2D/3 detector
+ * pipeline, which instead sets search_performance_opportunities.keyword_id
+ * directly). Used by Phase 4's content-brief builder as the fallback source
+ * for primary/secondary keywords when no detector context exists. */
+export async function listKeywordIdsForOpportunity(opportunityId: string): Promise<string[]> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("opportunity_keywords").select("keyword_id").eq("opportunity_id", opportunityId);
+  if (error) throw error;
+  return data.map((r) => r.keyword_id);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { getJob, markJobStatus, listJobsPending, createJob } from "@/lib/db/jobs";
+import { getJob, markJobStatus, claimJob, listJobsPending, createJob } from "@/lib/db/jobs";
 import { handleCrawlWebsite } from "@/lib/jobs/handlers/crawl";
 import { handleRunSeoAudit } from "@/lib/jobs/handlers/audit";
 import { handleGenerateSeoOpportunities } from "@/lib/jobs/handlers/opportunities";
@@ -8,6 +8,9 @@ import { handleAnalyseSearchPerformance } from "@/lib/jobs/handlers/analyse-sear
 import { handleFetchSerpResults } from "@/lib/jobs/handlers/fetch-serp-results";
 import { handleAnalyseCompetitors } from "@/lib/jobs/handlers/analyse-competitors";
 import { handleAnalyseCompetitorGaps } from "@/lib/jobs/handlers/analyse-competitor-gaps";
+import { handleGenerateContent } from "@/lib/jobs/handlers/generate-content";
+import { handleQaContent } from "@/lib/jobs/handlers/qa-content";
+import { handleReviseContent } from "@/lib/jobs/handlers/revise-content";
 import { getNextJobType, shouldAdvancePipeline, WORKER_LOOP_MAX_DURATION_MS, WORKER_LOOP_MAX_ITERATIONS } from "@/lib/jobs/policy";
 import type { JobHandler, JobRow } from "@/lib/jobs/types";
 import type { JobType } from "@/lib/supabase/types";
@@ -23,6 +26,9 @@ const HANDLERS: Record<JobType, JobHandler> = {
   FETCH_SERP_RESULTS: handleFetchSerpResults,
   ANALYSE_COMPETITORS: handleAnalyseCompetitors,
   ANALYSE_COMPETITOR_GAPS: handleAnalyseCompetitorGaps,
+  GENERATE_CONTENT: handleGenerateContent,
+  QA_CONTENT: handleQaContent,
+  REVISE_CONTENT: handleReviseContent,
 };
 
 /**
@@ -57,27 +63,36 @@ async function advancePipeline(job: JobRow): Promise<void> {
 }
 
 /**
- * Executes a single job by id: marks it PROCESSING, runs the handler for its
- * job_type, and marks it COMPLETED/FAILED with the result/error. On success,
- * enqueues the next pipeline stage. Safe to call more than once for the same
- * job (a second call on an already-terminal job is a no-op) — this plus each
- * handler's own idempotent writes (upserts, status transitions) is what
- * "idempotent where practical" means without a full at-least-once-delivery queue.
+ * Executes a single job by id: atomically claims it (PENDING -> PROCESSING),
+ * runs the handler for its job_type, and marks it COMPLETED/FAILED with the
+ * result/error. On success, enqueues the next pipeline stage. Safe to call
+ * more than once for the same job — a second call on an already-terminal
+ * job is a no-op, and a second *concurrent* call (e.g. `triggerJob`'s
+ * fire-and-forget racing a subsequent `processPendingJobs()` sweep) loses
+ * the claim and skips running the handler entirely, rather than both
+ * callers executing it. This plus each handler's own idempotent writes
+ * (upserts, status transitions) is what "idempotent where practical" means
+ * without a full at-least-once-delivery queue.
  */
 export async function processJob(jobId: string): Promise<JobRow | null> {
-  const job = await getJob(jobId);
-  if (!job) {
+  const existing = await getJob(jobId);
+  if (!existing) {
     console.error(`[jobs] processJob: job ${jobId} not found`);
     return null;
   }
-  if (job.status === "COMPLETED" || job.status === "CANCELLED") {
-    console.log(`[jobs] job ${jobId} already terminal (${job.status}); skipping`);
-    return job;
+  if (existing.status === "COMPLETED" || existing.status === "CANCELLED") {
+    console.log(`[jobs] job ${jobId} already terminal (${existing.status}); skipping`);
+    return existing;
+  }
+
+  const job = await claimJob(jobId);
+  if (!job) {
+    console.log(`[jobs] job ${jobId} could not be claimed (not PENDING — already PROCESSING or otherwise not runnable); skipping concurrent run`);
+    return existing;
   }
 
   const handler = HANDLERS[job.job_type];
   console.log(`[jobs] starting ${job.job_type} job ${jobId} (website ${job.website_id ?? "n/a"})`);
-  await markJobStatus(jobId, "PROCESSING");
 
   try {
     const result = await handler({ job });

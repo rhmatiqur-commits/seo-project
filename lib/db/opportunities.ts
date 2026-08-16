@@ -7,6 +7,13 @@ type OpportunityInsert = Omit<OpportunityInsertRaw, "priority_components"> & {
   priority_components?: Record<string, unknown>;
 };
 
+export async function getOpportunity(id: string): Promise<OpportunityRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("seo_opportunities").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function listOpportunitiesForWebsite(websiteId: string): Promise<OpportunityRow[]> {
   const db = supabaseAdmin();
   const { data, error } = await db

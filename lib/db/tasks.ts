@@ -29,3 +29,17 @@ export async function updateTaskStatus(id: string, status: TaskStatus): Promise<
   if (error) throw error;
   return data;
 }
+
+/** The seo_tasks row created when this opportunity was promoted (every
+ * promotion path — Phase 1 AI, Phase 2B keyword-discovery, Phase 2D/3
+ * search-performance — creates exactly one task per opportunity), used by
+ * the content-brief builder (Phase 4) to record the full opportunity -> task
+ * -> brief traceability chain. Null if the opportunity was never promoted
+ * through one of those paths (shouldn't happen for a content-eligible
+ * opportunity, but never assumed). */
+export async function getTaskForOpportunity(opportunityId: string): Promise<TaskRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("seo_tasks").select("*").eq("opportunity_id", opportunityId).order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data;
+}

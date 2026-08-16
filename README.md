@@ -50,6 +50,14 @@ The 3 new detectors land in the *same* `search_performance_opportunities` table 
 
 CV Central is the first test client, but nothing in the code is CV-Central-specific — it's seeded through the same `createOrganization`/`createWebsite` calls any client onboarding would use.
 
+**Phase 4** turns a prioritised opportunity into an actual page draft — the platform's first *execution*, not just detection, layer:
+
+```
+SEO opportunity → content brief → GENERATE_CONTENT → deterministic+AI QA → REVISE_CONTENT (bounded) → human approval
+```
+
+Everything stops at approval — "ready for Phase 5 publishing," nothing is ever published automatically. Content generation sits behind a `ContentProvider` interface (`generateContent`/`reviseContent`/`generateMetadata`), initially implemented on the platform's own existing `AIProvider` — no CV Central content-writing system is reachable from this repository or environment (checked before writing any code; see the dedicated section below), so nothing was invented there.
+
 ## Architecture
 
 - **Framework**: Next.js 16 (App Router) + TypeScript. One app serves both the JSON API (`app/api/**`, Route Handlers) and a deliberately plain internal admin UI (`app/admin/**`, server components + server actions — no client-side framework, no design investment).
@@ -57,13 +65,14 @@ CV Central is the first test client, but nothing in the code is CV-Central-speci
 - **Crawler**: `lib/crawler/*` — built-in `fetch` + `cheerio` for HTML parsing + `robots-parser` for robots.txt. No headless browser (no JS rendering) — a known Phase 1 limitation.
 - **SEO audit**: `lib/audit/*` — a set of small, pure rule functions (`lib/audit/rules/*.ts`) run over crawled pages/links by `lib/audit/engine.ts`.
 - **AI**: `lib/ai/provider.ts` defines an `AIProvider` interface (`generateStructuredOutput`, `generateText`, `analyse`); `lib/ai/anthropic-provider.ts` is the only implementation today, using Claude's tool-use for structured output. `lib/ai/seo-analysis.ts` is the orchestration: build a compact structured summary from the DB → call the provider → validate with zod → dedupe → persist opportunities + tasks.
-- **Jobs**: `lib/jobs/*` — a `jobs` table + an in-process runner, no Redis/queue yet. `lib/jobs/trigger.ts` (fire-and-forget) is still what manual admin/API triggers use; `processPendingJobs` (`lib/jobs/runner.ts`) is a bounded worker loop that explicitly drains the queue rather than relying on a detached promise — used by the scheduler, `/api/jobs/process`, and `npm run jobs:sweep`. `processJob` enqueues the next pipeline stage on `COMPLETED` (`lib/jobs/policy.ts` has the pure due/stale/retry/next-stage decision logic, unit-tested in `policy.test.ts`).
+- **Jobs**: `lib/jobs/*` — a `jobs` table + an in-process runner, no Redis/queue yet. `lib/jobs/trigger.ts` (fire-and-forget) is still what manual admin/API triggers use; `processPendingJobs` (`lib/jobs/runner.ts`) is a bounded worker loop that explicitly drains the queue rather than relying on a detached promise — used by the scheduler, `/api/jobs/process`, and `npm run jobs:sweep`. `processJob` enqueues the next pipeline stage on `COMPLETED` (`lib/jobs/policy.ts` has the pure due/stale/retry/next-stage decision logic, unit-tested in `policy.test.ts`). `processJob` atomically **claims** a job (`lib/db/jobs.ts`'s `claimJob`, a conditional `UPDATE ... WHERE status = 'PENDING'`) before running its handler — found necessary during Phase 4 live testing, where `triggerJob`'s fire-and-forget call racing a subsequent `processPendingJobs()` sweep on the same job id caused `GENERATE_CONTENT` to run its handler twice concurrently, producing a duplicate, never-QA'd content version. Fixed for every job type, not just content ones.
 - **Scheduler**: `lib/jobs/scheduler.ts`'s `runScheduledSweep()` — recovers stale jobs, requeues retry-eligible failures, enqueues `CRAWL_WEBSITE` and `KEYWORD_DISCOVERY` for due active websites (independent schedules), runs the worker loop, records a `scheduler_runs` row. Exposed at `POST/GET /api/scheduler/run` (bearer-secret gated) and called on a cron by `.github/workflows/scheduler.yml`. Designed so a real queue (BullMQ/Redis) could later replace the worker loop without touching `lib/jobs/handlers/*` — handlers only depend on the `JobHandler` signature, never on how they're invoked.
 - **Keyword Intelligence** (Phase 2B): `lib/keywords/*` — pure modules (normalize/match/score/merge) plus a `KeywordDataProvider` abstraction (`lib/keywords/provider.ts`), mirroring `AIProvider`'s shape exactly. `lib/jobs/handlers/keyword-discovery.ts` orchestrates it all and reuses Phase 1's `insertOpportunity`/`insertTask`/`linkOpportunityKeyword` to promote high-value keyword opportunities into the existing task system. See the dedicated section below.
 - **Search Console integration** (Phase 2C): `lib/search-console/*` — hand-rolled `fetch` wrappers around Google's OAuth and Search Console (Webmasters v3) REST endpoints (no `googleapis` dependency), a signed/expiring OAuth `state` param for the unauthenticated callback route, and a pure row-normalizer. `lib/jobs/handlers/search-console-sync.ts` refreshes the access token when needed and upserts real metrics. See the dedicated section below.
 - **SEO Decision Engine** (Phase 2D): `lib/search-performance/*` — 7 pure detector modules, a historical-comparison aggregator, a documented scoring formula, and a deterministic dedupe-key builder for idempotent upserts. `lib/jobs/handlers/analyse-search-performance.ts` orchestrates detection → scoring → an optional bounded AI-interpretation pass → promotion into `seo_opportunities`/`seo_tasks`. See the dedicated section below.
 - **API authorization** (Phase 2D): `proxy.ts`'s Basic Auth now also covers `/api/**` (previously `/admin/**` only); `lib/api/authorize.ts` guards against a client-supplied organization id being trusted over the resource's real owner. See `SECURITY_AUDIT.md` for the full audit and its honestly-documented limits.
 - **Competitor & SERP Intelligence** (Phase 3): `lib/dataforseo/client.ts` — one shared Basic-Auth HTTP client used by both `lib/serp/dataforseo-serp-provider.ts` (`SerpDataProvider`) and `lib/keywords/dataforseo-provider.ts` (`KeywordDataProvider`). `lib/serp/*` holds deterministic classification/scoring/aggregation/overlap modules; 3 new detectors reuse Phase 2D's exact pipeline (`lib/jobs/handlers/search-performance-shared.ts`, extracted from `analyse-search-performance.ts` in this phase so both jobs share one code path). See the dedicated section below.
+- **Content Execution Engine** (Phase 4): `lib/content/*` — a `ContentProvider` interface (`provider.ts`/`get-provider.ts`, mirrors `AIProvider`'s shape) with an `AiContentProvider` implementation; a pure `buildContentBrief()` assembling a structured brief from already-collected Phase 1-3 data (`build-brief.ts`); a deterministic+AI QA system (`qa/*` — ~13 pure checks, one soft-failing AI rating call, a pure score/pass combiner); a pure approval state-machine (`state-machine.ts`). Three new job types (`GENERATE_CONTENT`/`QA_CONTENT`/`REVISE_CONTENT`, `lib/jobs/handlers/*-content.ts`) self-chain scoped by `content_job_id` rather than the generic website-scoped pipeline mechanism, since many content briefs can be in flight per website at once. See the dedicated section below.
 
 ```
 app/
@@ -73,12 +82,14 @@ app/
     websites/[id]/search-console/  Search Console: connect/site-picker, stats, metrics table
     websites/[id]/search-performance/  SEO Decision Engine: opportunities table, filters, status updates
     websites/[id]/competitors/  Competitor & SERP Intelligence: competitors, SERPs, provider usage
+    websites/[id]/content/  Content Execution: brief list, per-brief review/editor page
   api/               JSON API route handlers (Basic-Auth-gated, Phase 2D — see SECURITY_AUDIT.md)
     scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint (excluded from Basic Auth)
     websites/[id]/keyword-discovery/  manual KEYWORD_DISCOVERY trigger
     websites/[id]/search-console-sync/  manual SEARCH_CONSOLE_SYNC trigger
     websites/[id]/search-performance-analysis/  manual ANALYSE_SEARCH_PERFORMANCE trigger
     websites/[id]/serp-fetch/  manual FETCH_SERP_RESULTS trigger
+    content-briefs/[id]/generate/  manual GENERATE_CONTENT trigger
     auth/google-search-console/start|callback/  OAuth flow (callback excluded from Basic Auth by necessity; state-signed)
 lib/
   supabase/          server-side client + generated Database types
@@ -91,6 +102,7 @@ lib/
   search-performance/    10 pure detectors (7 Phase 2D + 3 Phase 3), comparison/scoring/dedupe-key modules
   serp/                  SerpDataProvider abstraction, classification/scoring/aggregation/overlap/priority-tier modules (Phase 3)
   dataforseo/            shared low-level HTTP client used by both the SERP and keyword DataForSEO providers
+  content/                ContentProvider abstraction, brief builder, deterministic+AI QA (qa/*), approval state-machine (Phase 4)
   api/                   lib/api/authorize.ts (IDOR guard), lib/api/respond.ts (route helpers)
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
@@ -100,10 +112,10 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 
 ## Database schema
 
-27 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0014_competitor_intelligence.sql`) for the full source of truth.
+31 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0016_content_execution.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
-- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and four **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), and `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all four; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below).
+- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and four **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), and `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all four; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below). `business_description`/`target_audience`/`brand_voice`/`content_constraints` (Phase 4) — nullable, admin-editable business facts the content brief reads; never auto-filled, a null value is surfaced to both the human reviewer and the QA factuality check instead.
 - **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by every schedule.
 - **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error (keyword-discovery counts live in the `summary` jsonb column). Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
 - **website_pages** — one row per crawled URL: status, title, meta description, H1, headings (jsonb), word count, canonical, noindex, structured-data types, image/link counts, orphan flag, redirect chain (jsonb).
@@ -125,7 +137,11 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 - **seo_opportunities** — recommendations (`CREATE_NEW_PAGE` / `OPTIMISE_EXISTING_PAGE` / `TECHNICAL_FIX` / `INTERNAL_LINKING` / `RESEARCH_REQUIRED`, plus Phase 2D's `IMPROVE_CTR` / `INVESTIGATE_DECLINE` / `INVESTIGATE_OPPORTUNITY` / `IMPROVE_INTERNAL_LINKING`), with `priority_score` + `priority_components` and an `ai_job_id` back-reference. Populated by Phase 1's page-level AI analysis, Phase 2B's keyword-opportunity promotion, and Phase 2D's search-performance-opportunity promotion — one system, three feeders.
 - **opportunity_keywords** — join table (Phase 1), reused as-is by Phase 2B to link a promoted keyword to its `seo_opportunities` row.
 - **seo_tasks** — one task per stored opportunity (also usable standalone later), with its own status lifecycle.
-- **ai_jobs** — one row per individual AI provider call: provider, model, prompt version, token usage, latency, status, result. Distinct from `jobs` — a single `GENERATE_SEO_OPPORTUNITIES`/`KEYWORD_DISCOVERY` job makes exactly one AI call today, but the schema allows more later without migration.
+- **ai_jobs** — one row per individual AI provider call: provider, model, prompt version, token usage, latency, status, result. Distinct from `jobs` — a single `GENERATE_SEO_OPPORTUNITIES`/`KEYWORD_DISCOVERY` job makes exactly one AI call today, but the schema allows more later without migration. Every Phase 4 content AI call (generation/revision/metadata/QA) also logs here — no separate cost-tracking mechanism was built.
+- **content_briefs** (Phase 4) — one row per `seo_opportunities` row a human turned into a brief: `content_type` (reuses `opportunity_type` — only `CREATE_NEW_PAGE`/`OPTIMISE_EXISTING_PAGE`), `primary_keyword`/`primary_keyword_id`, `target_url`, `status` (`DRAFT`/`SUBMITTED` — has generation started yet), and `brief_data` jsonb — the full structured `ContentBrief` captured once at creation, so the brief a human reviewed is exactly what the provider receives later. `seo_task_id` completes the opportunity→task→brief traceability chain.
+- **content_jobs** (Phase 4) — one row per brief's generation *effort* (not per async step — those are ordinary `jobs` rows, linked back via `jobs.payload->>'content_job_id'`). `status` is the human-facing lifecycle (`DRAFT`/`QA_PENDING`/`QA_FAILED`/`NEEDS_REVIEW`/`READY_FOR_APPROVAL`/`APPROVED`/`REJECTED`) — independent of the underlying `jobs.status`, which only tracks whether a step is currently running (same split as `seo_audits.status` vs `jobs.status`). `attempts` counts revisions consumed.
+- **content_versions** (Phase 4) — every draft/revision, never overwritten; `unique(content_brief_id, version_number)`. SEO title/meta description/suggested URL/H1 live in `metadata` jsonb, separate from `content` (the body).
+- **content_qa_results** (Phase 4) — the full deterministic+AI QA breakdown for one version: `passed`/`score`/`deterministic_checks`/`ai_feedback`/`issues`, plus `ai_job_id` (nullable — null when the AI QA call was skipped/failed, a soft failure) and `model`/`prompt_version`. `content_versions.qa_status` is a fast summary column; this table is the detail.
 
 RLS: every tenant table is scoped via an `is_org_member(organization_id)` helper function checked against `memberships` (tables without a direct `organization_id`, like `keyword_metrics`/`keyword_page_matches`, join through `keywords` to reach it). The service-role key bypasses this by design (Phase 1); it exists for Phase 2 client-facing access.
 
@@ -148,6 +164,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `CRON_SECRET` | Any long random value (e.g. `openssl rand -hex 32`) — gates `/api/scheduler/run`. Matches Vercel Cron's own convention. |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Optional — only needed for the Search Console integration (Phase 2C). See "Search Console integration" below for how to create these in Google Cloud Console. Everything else works with zero GSC setup. |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | Optional — only needed for the Competitor & SERP Intelligence integration (Phase 3). Your DataForSEO account login/password. See "Competitor & SERP Intelligence" below. Everything else works with zero DataForSEO setup. |
+| `CONTENT_PROVIDER` | Optional, defaults to `ai` — selects which `lib/content/*-provider.ts` implementation `lib/content/get-provider.ts` returns (Phase 4). Only `ai` (built on `AI_PROVIDER` above) exists today. |
 
 ## Local development
 
@@ -155,7 +172,7 @@ Copy `.env.example` to `.env.local` and fill in:
 npm install
 npm run dev       # http://localhost:3000 (admin at /admin, prompts for ADMIN_PASSWORD via Basic Auth)
 npm run typecheck
-npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword/search-console/search-performance/serp/dataforseo modules, API authorization guard (node:test)
+npm test           # pure-function unit tests: audit rules, job scheduling policy, keyword/search-console/search-performance/serp/dataforseo/content modules, API authorization guard (node:test)
 ```
 
 ## Supabase setup
@@ -440,8 +457,60 @@ curl -X POST http://localhost:3000/api/websites/<website-id>/serp-fetch -u admin
 
 Results appear on the Competitors page (competitors table, recent SERPs, provider usage) and, for content/ranking/SERP-feature gaps, on the existing [SEO Decision Engine page](#seo-decision-engine-phase-2d) filtered to the 3 new detector types. Re-run the whole chain twice to confirm no duplicate `serp_runs`/`competitor_domains`/opportunities/tasks.
 
-## What remains for Phase 4+
+## Content Execution Engine (Phase 4)
 
+Turns a prioritised `seo_opportunities` row into an actual page draft — the platform's first *execution*, not just detection, layer. Nothing here publishes anywhere; approval only means "ready for Phase 5 publishing."
+
+### Before writing any integration code
+
+The spec required inspecting whether an existing CV Central content-generation engine could be reached from this repository/environment, and stopping rather than inventing an integration if not. It couldn't: no code, no deployed API, no credentials anywhere in `.env.local`/`.env.example`, no sibling repo anywhere on the machine. "CV Central" has only ever been the client *website* this platform audits (a database row), never a codebase with a boundary into it. `ContentProvider`'s initial implementation is therefore `AiContentProvider`, built on the platform's own existing `AIProvider` — the interface is designed so a real `CvCentralContentProvider` can be dropped in later (`lib/content/get-provider.ts`'s `CONTENT_PROVIDER` env var is the seam), but that file isn't created now.
+
+### Eligibility
+
+A `seo_opportunities` row is content-eligible iff `type` is `CREATE_NEW_PAGE` or `OPTIMISE_EXISTING_PAGE` (`lib/content/eligibility.ts`). This single gate covers the spec's full "initial supported opportunity types" list: `CONTENT_GAP`/`COMPETITOR_CONTENT_GAP`/`PAGE_TWO_OPPORTUNITY` are `detector_type` values, not `opportunity_type` values — by the time any of those detectors reach `seo_opportunities`, they've already resolved to one of the two eligible types.
+
+### The content brief
+
+`lib/content/build-brief.ts`'s pure `buildContentBrief()` assembles a structured `ContentBrief` (organization/website business context, the opportunity, detector signals when the opportunity was Phase 2D/3-promoted, primary/secondary keywords, real Search Console rows, real keyword-provider metrics, structured-metadata-only competitor pages, content gaps, recommended topics, real-page-only internal-link suggestions, and an explicit `missingBusinessInfo` list) from already-collected data — zero AI, zero fabrication. `lib/content/create-brief.ts` does the DB-reading half (reusing every relevant Phase 1-3 query) and stores the result verbatim in `content_briefs.brief_data`, so the brief a human reviews is exactly what the provider receives later. A website's `business_description`/`target_audience`/`brand_voice`/`content_constraints` (editable on the Content page) are never guessed — a blank field becomes a `missingBusinessInfo` entry instead.
+
+### Generation, QA, and the revision loop
+
+Three job types, each an ordinary row in the existing `jobs` table (`GENERATE_CONTENT` → `QA_CONTENT` → `READY_FOR_APPROVAL` or → `REVISE_CONTENT` → `QA_CONTENT` again):
+
+- **`GENERATE_CONTENT`** (`lib/jobs/handlers/generate-content.ts`) — calls `ContentProvider.generateContent`/`generateMetadata`, stores `content_versions` #1, moves the `content_jobs` row to `QA_PENDING`.
+- **`QA_CONTENT`** (`lib/jobs/handlers/qa-content.ts`) — `lib/content/qa/deterministic.ts` runs ~13 pure checks (primary keyword presence, title/H1/meta presence+bounds, heading structure, keyword-stuffing density, empty/short content, malformed markdown, placeholder-text patterns, required-topic coverage, **internal links validated against real `website_pages` URLs — a link to a page that doesn't exist is a blocking failure**, and a business-claim safeguard blocking invented pricing/guarantees/certifications/statistics/testimonial-like quotes). `lib/content/qa/ai-qa.ts` makes one soft-failing AI call (same try/catch pattern as Phase 2D's interpretation pass) rating intent-alignment/topical-coverage/usefulness/clarity/business-relevance/competitor-gap-coverage 1-5 plus two booleans — no numeric "score" field the model could invent. `lib/content/qa/compute-result.ts` (pure TypeScript) combines both into pass/fail + a 0-100 score: **passing requires every blocking check to pass** regardless of score, so AI is informative, never gating by itself.
+- **`REVISE_CONTENT`** (`lib/jobs/handlers/revise-content.ts`) — feeds the latest QA issues (+ optional human free-text instructions) to `ContentProvider.reviseContent`, stores a new `content_versions` row (previous ones are never overwritten).
+
+Chaining is deliberately **not** the generic website-scoped `advancePipeline()` mechanism (`lib/jobs/policy.ts`'s `getNextJobType` returns `null` for all three) — its `idempotency_key = "{nextType}:{websiteId}"` scoping would collide across two different briefs on the same website, since many can be generating at once. Each handler instead creates its own next stage directly, scoped by `content_job_id`.
+
+Automatic revision only continues while `content_jobs.attempts < MAX_CONTENT_REVISIONS` (2); once exhausted, the job moves to `NEEDS_REVIEW` and stops — a human can still click **Revise** manually from there (an explicit override, not a resumed loop). `lib/content/state-machine.ts`'s `canTransitionContentJob` is the single source of truth for every legal status change (`DRAFT → QA_PENDING → READY_FOR_APPROVAL/QA_FAILED/NEEDS_REVIEW → APPROVED/REJECTED`), checked before every mutation, automatic or human.
+
+### Human approval
+
+`content_jobs.status` (independent of the underlying async `jobs.status` — see the database section above) is what the admin UI's Generate/Run QA/Revise/Approve/Reject actions read and mutate. `APPROVED` means "approved for Phase 5 publishing" — nothing is published. `APPROVED`/`REJECTED` are terminal; a fresh attempt from `REJECTED` creates a new `content_jobs` row for the same brief.
+
+### Traceability
+
+Every content_job traces back through `content_briefs.seo_opportunity_id` → `seo_opportunities` → (`seo_task_id` →) `seo_tasks`, and — when the opportunity was Phase 2D/3-promoted — through the brief's `detector` field back to the originating keyword/competitor signal. The `landlord accountant Coventry` chain from the spec (keyword → GSC → competitor gap → opportunity → task → brief → draft → QA → approval) is fully walkable from the brief detail page.
+
+### Cost control
+
+Every AI call (generation, revision, metadata, QA) logs to the existing `ai_jobs` table (provider/model/tokens/latency) — no separate tracking mechanism. Brief assembly bounds competitor pages/Search Console rows/secondary keywords/internal-link suggestions to named constants in `lib/content/limits.ts`, same convention as every prior phase's `limits.ts`.
+
+### Testing the pipeline
+
+Via the admin UI: open a website's Content page (`/admin/websites/[id]/content`), fill in the business profile (optional but recommended), click **Generate brief** next to an eligible opportunity, then **Generate content** on the brief page — this chains automatically through QA (and revision, if needed). Via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/content-briefs/<brief-id>/generate -u admin:$ADMIN_PASSWORD
+```
+
+Draining the queue (`npm run jobs:sweep`, the automation page's "Process pending jobs", or the scheduler sweep) is required between stages, same as every other job pipeline in this platform.
+
+## What remains for Phase 5+
+
+- **Publishing** — WordPress/Webflow/Shopify integration, automatic page replacement, automatic content deletion — explicitly out of scope for Phase 4; `APPROVED` only means "ready," nothing is pushed anywhere yet.
+- A real `CvCentralContentProvider` (or equivalent) once an actual content-writing system/API becomes reachable — `AiContentProvider` is a deliberate placeholder behind the same interface, not a permanent choice.
 - Feeding real Search Console/SERP position data into `keyword_opportunities.difficulty_score`, replacing the AI-estimated placeholder now that real ranking data exists from two sources.
 - Splitting `ANALYSE_WEBSITE` into its own richer step now that real keyword and competitor data exist.
 - A real worker/queue (BullMQ+Redis or similar) behind the same `jobs` table — `lib/jobs/handlers/*` only depend on the `JobHandler` signature, so this replaces `processPendingJobs`'s loop without touching them.
@@ -449,5 +518,6 @@ Results appear on the Competitors page (competitors table, recent SERPs, provide
 - AI enrichment of `UNKNOWN`/`OTHER`-classified competitor domains (the deterministic classifier is intentionally conservative — see "Competitor identification" above).
 - **A detector coverage gap found during live testing (CV Central, Phase 3)**: when the client has a page that already lexically matches a keyword, but the client doesn't rank for it *at all* (not just poorly) while `DIRECT_COMPETITOR`s do, neither `COMPETITOR_CONTENT_GAP` (skips — a matching page exists) nor `COMPETITOR_RANKING_GAP` (skips — requires the client to already hold *some* position to compare against) fires. Closing this needs a variant detector keyed off "never ranked despite adequate content" rather than "no content" or "ranks worse" — closer in spirit to `MISSING_PAGE`/`DECLINING_KEYWORD` from Phase 2D. Not built yet.
 - A `raw_response`/SERP-payload retention/cleanup job (currently kept indefinitely, flagged as a follow-up).
-- Backlink intelligence, ranking history trends/alerts beyond the current comparison windows, deeper competitor content analysis (topic clustering, content briefs).
-- Content briefs, automatic content generation/publishing, backlink campaigns, autonomous outreach, client-facing reports, billing, full client-authentication redesign — all explicitly out of scope so far.
+- Backlink intelligence, ranking history trends/alerts beyond the current comparison windows, deeper competitor content analysis (topic clustering).
+- A richer, more collaborative content editor (inline editing, real diffing between versions) — Phase 4 deliberately kept the review UI to read/compare/approve/reject/request-revision, per spec.
+- Backlink campaigns, autonomous outreach, client-facing reports, billing, full client-authentication redesign — all explicitly out of scope so far.

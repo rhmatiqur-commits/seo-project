@@ -160,6 +160,27 @@ export async function listSearchConsoleMetricsForWebsite(websiteId: string, limi
   return data;
 }
 
+/** Recent real GSC rows for one specific query or page URL — used by Phase
+ * 4's content-brief builder ("relevant Search Console data" for the
+ * opportunity's primary keyword/existing page), not the whole-website
+ * overview the admin page uses. Matches on query when given, otherwise on
+ * page_url; returns [] (never fabricated rows) if neither is available or
+ * nothing was ever measured. */
+export async function listSearchConsoleMetricsForKeywordOrPage(
+  websiteId: string,
+  filter: { query?: string | null; pageUrl?: string | null },
+  limit = 10
+): Promise<MetricRow[]> {
+  if (!filter.query && !filter.pageUrl) return [];
+  const db = supabaseAdmin();
+  let query = db.from("search_console_metrics").select("*").eq("website_id", websiteId);
+  if (filter.query) query = query.ilike("query", filter.query);
+  else if (filter.pageUrl) query = query.eq("page_url", filter.pageUrl);
+  const { data, error } = await query.order("date", { ascending: false }).limit(limit);
+  if (error) throw error;
+  return data;
+}
+
 export interface SearchConsoleStats {
   totalRows: number;
   totalClicks: number;

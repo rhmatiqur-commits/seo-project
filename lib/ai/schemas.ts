@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MAX_KEYWORDS_PER_DISCOVERY_RUN } from "@/lib/keywords/limits";
 import { MAX_AI_INTERPRETATIONS_PER_RUN } from "@/lib/search-performance/limits";
+import { MIN_SEO_TITLE_LENGTH, MAX_SEO_TITLE_LENGTH, MIN_META_DESCRIPTION_LENGTH, MAX_META_DESCRIPTION_LENGTH } from "@/lib/content/limits";
 
 /**
  * Structured output contract for the SEO opportunity-generation call.
@@ -234,5 +235,83 @@ export const searchPerformanceInterpretationJsonSchema = {
         },
       },
     },
+  },
+} as const;
+
+/**
+ * Structured output contract for ContentProvider.generateMetadata (Phase 4).
+ * Small and fully structured on purpose — title/meta description/URL/H1 are
+ * exactly the kind of bounded shape generateStructuredOutput is for, unlike
+ * the free-form body text (generated via generateText instead).
+ */
+
+export const contentMetadataSchema = z.object({
+  seo_title: z.string().min(MIN_SEO_TITLE_LENGTH).max(MAX_SEO_TITLE_LENGTH),
+  meta_description: z.string().min(MIN_META_DESCRIPTION_LENGTH).max(MAX_META_DESCRIPTION_LENGTH),
+  suggested_url: z.string().min(1).max(200),
+  h1: z.string().min(3).max(150),
+});
+
+export type ContentMetadataDraft = z.infer<typeof contentMetadataSchema>;
+
+export const contentMetadataJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["seo_title", "meta_description", "suggested_url", "h1"],
+  properties: {
+    seo_title: { type: "string", description: `The <title> tag text, ${MIN_SEO_TITLE_LENGTH}-${MAX_SEO_TITLE_LENGTH} characters, including the primary keyword naturally.` },
+    meta_description: { type: "string", description: `The meta description, ${MIN_META_DESCRIPTION_LENGTH}-${MAX_META_DESCRIPTION_LENGTH} characters, a genuine summary of the page — no invented offers/claims.` },
+    suggested_url: { type: "string", description: "A lowercase, hyphenated URL slug (path only, no domain) consistent with the brief's targetUrl recommendation." },
+    h1: { type: "string", description: "The on-page H1 heading — may differ slightly from seo_title for readability." },
+  },
+} as const;
+
+/**
+ * Structured output contract for the AI-assisted half of content QA (Phase
+ * 4). Deliberately bounded 1-5 categorical ratings + booleans + free text —
+ * no numeric "score" field anywhere: the composite pass/fail score is always
+ * computed in TypeScript (lib/content/qa/compute-result.ts) from these
+ * ratings plus the deterministic checks, never returned by the model
+ * directly. "Do NOT use AI for simple numerical calculations."
+ */
+
+export const contentQaSchema = z.object({
+  search_intent_alignment: z.number().int().min(1).max(5),
+  topical_coverage: z.number().int().min(1).max(5),
+  usefulness: z.number().int().min(1).max(5),
+  clarity: z.number().int().min(1).max(5),
+  business_relevance: z.number().int().min(1).max(5),
+  competitor_gap_coverage: z.number().int().min(1).max(5),
+  addresses_likely_question: z.boolean(),
+  feels_generic_or_repetitive: z.boolean(),
+  notes: z.string().min(5).max(800),
+});
+
+export type ContentQaDraft = z.infer<typeof contentQaSchema>;
+
+export const contentQaJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "search_intent_alignment",
+    "topical_coverage",
+    "usefulness",
+    "clarity",
+    "business_relevance",
+    "competitor_gap_coverage",
+    "addresses_likely_question",
+    "feels_generic_or_repetitive",
+    "notes",
+  ],
+  properties: {
+    search_intent_alignment: { type: "integer", minimum: 1, maximum: 5, description: "Does the content match the brief's search_intent (informational/commercial/transactional/etc)?" },
+    topical_coverage: { type: "integer", minimum: 1, maximum: 5, description: "Does it cover the brief's recommendedTopics/contentGaps adequately?" },
+    usefulness: { type: "integer", minimum: 1, maximum: 5, description: "Would a real visitor searching this keyword find this genuinely useful?" },
+    clarity: { type: "integer", minimum: 1, maximum: 5, description: "Is it clearly written and well-structured?" },
+    business_relevance: { type: "integer", minimum: 1, maximum: 5, description: "Does it stay relevant to the website's actual business, based only on the brief's business fields?" },
+    competitor_gap_coverage: { type: "integer", minimum: 1, maximum: 5, description: "If the brief lists competitor content gaps, does this content close them? 3 (neutral) if the brief lists none." },
+    addresses_likely_question: { type: "boolean", description: "Does the content actually answer the question/need implied by the primary keyword?" },
+    feels_generic_or_repetitive: { type: "boolean", description: "True if the content reads as generic filler or repeats itself rather than saying something concrete." },
+    notes: { type: "string", description: "1-3 sentences of concrete, actionable feedback — this becomes revision guidance if QA fails. Never state a specific ranking/traffic number." },
   },
 } as const;

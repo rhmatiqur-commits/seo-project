@@ -44,6 +44,14 @@ const envSchema = z
     // keeps working with zero DataForSEO setup.
     DATAFORSEO_LOGIN: z.string().min(1).optional(),
     DATAFORSEO_PASSWORD: z.string().min(1).optional(),
+
+    // Which ContentProvider implementation lib/content/get-provider.ts hands
+    // back (Phase 4). Only "ai" is implemented today (built on the existing
+    // AIProvider) — this env var exists so a future CvCentralContentProvider
+    // has a seam to plug into without touching call sites, same pattern as
+    // AI_PROVIDER above. Not "cvcentral" yet: that integration doesn't exist
+    // anywhere accessible from this repo (see README's Phase 4 section).
+    CONTENT_PROVIDER: z.enum(["ai"]).default("ai"),
   })
   .refine((val) => (val.AI_PROVIDER === "anthropic" ? Boolean(val.ANTHROPIC_API_KEY) : Boolean(val.OPENAI_API_KEY)), {
     message: "Set ANTHROPIC_API_KEY (when AI_PROVIDER=anthropic) or OPENAI_API_KEY (when AI_PROVIDER=openai).",
