@@ -1,5 +1,5 @@
 // Generated via the Supabase MCP `generate_typescript_types` tool against the
-// live schema (supabase/migrations/0001-0021). Regenerate after any migration
+// live schema (supabase/migrations/0001-0024). Regenerate after any migration
 // change and reconcile with the Tables section rather than hand-editing generated shapes.
 
 ﻿export type Json =
@@ -95,9 +95,14 @@ export type Database = {
       }
       cms_connections: {
         Row: {
-          base_url: string
+          base_url: string | null
           created_at: string
           credential_secret_id: string
+          github_account_login: string | null
+          github_owner: string | null
+          github_production_branch: string | null
+          github_publication_mode: Database["public"]["Enums"]["github_publication_mode"]
+          github_repo: string | null
           id: string
           last_test_error: string | null
           last_tested_at: string | null
@@ -105,13 +110,19 @@ export type Database = {
           provider: Database["public"]["Enums"]["cms_provider"]
           status: Database["public"]["Enums"]["cms_connection_status"]
           updated_at: string
-          username: string
+          username: string | null
+          vercel_project_id: string | null
           website_id: string
         }
         Insert: {
-          base_url: string
+          base_url?: string | null
           created_at?: string
           credential_secret_id: string
+          github_account_login?: string | null
+          github_owner?: string | null
+          github_production_branch?: string | null
+          github_publication_mode?: Database["public"]["Enums"]["github_publication_mode"]
+          github_repo?: string | null
           id?: string
           last_test_error?: string | null
           last_tested_at?: string | null
@@ -119,13 +130,19 @@ export type Database = {
           provider?: Database["public"]["Enums"]["cms_provider"]
           status?: Database["public"]["Enums"]["cms_connection_status"]
           updated_at?: string
-          username: string
+          username?: string | null
+          vercel_project_id?: string | null
           website_id: string
         }
         Update: {
-          base_url?: string
+          base_url?: string | null
           created_at?: string
           credential_secret_id?: string
+          github_account_login?: string | null
+          github_owner?: string | null
+          github_production_branch?: string | null
+          github_publication_mode?: Database["public"]["Enums"]["github_publication_mode"]
+          github_repo?: string | null
           id?: string
           last_test_error?: string | null
           last_tested_at?: string | null
@@ -133,7 +150,8 @@ export type Database = {
           provider?: Database["public"]["Enums"]["cms_provider"]
           status?: Database["public"]["Enums"]["cms_connection_status"]
           updated_at?: string
-          username?: string
+          username?: string | null
+          vercel_project_id?: string | null
           website_id?: string
         }
         Relationships: [
@@ -479,48 +497,69 @@ export type Database = {
       }
       content_publications: {
         Row: {
+          base_commit_sha: string | null
+          branch_name: string | null
+          commit_sha: string | null
           content_version_id: string
           created_at: string
           error: string | null
           external_id: string | null
           id: string
           organization_id: string
+          preview_url: string | null
+          production_commit_sha: string | null
           provider: Database["public"]["Enums"]["cms_provider"]
           provider_response_metadata: Json
           publication_type: Database["public"]["Enums"]["opportunity_type"]
           published_at: string | null
+          pull_request_number: number | null
+          pull_request_url: string | null
           status: Database["public"]["Enums"]["publication_status"]
           target_url: string | null
           updated_at: string
           website_id: string
         }
         Insert: {
+          base_commit_sha?: string | null
+          branch_name?: string | null
+          commit_sha?: string | null
           content_version_id: string
           created_at?: string
           error?: string | null
           external_id?: string | null
           id?: string
           organization_id: string
+          preview_url?: string | null
+          production_commit_sha?: string | null
           provider?: Database["public"]["Enums"]["cms_provider"]
           provider_response_metadata?: Json
           publication_type: Database["public"]["Enums"]["opportunity_type"]
           published_at?: string | null
+          pull_request_number?: number | null
+          pull_request_url?: string | null
           status?: Database["public"]["Enums"]["publication_status"]
           target_url?: string | null
           updated_at?: string
           website_id: string
         }
         Update: {
+          base_commit_sha?: string | null
+          branch_name?: string | null
+          commit_sha?: string | null
           content_version_id?: string
           created_at?: string
           error?: string | null
           external_id?: string | null
           id?: string
           organization_id?: string
+          preview_url?: string | null
+          production_commit_sha?: string | null
           provider?: Database["public"]["Enums"]["cms_provider"]
           provider_response_metadata?: Json
           publication_type?: Database["public"]["Enums"]["opportunity_type"]
           published_at?: string | null
+          pull_request_number?: number | null
+          pull_request_url?: string | null
           status?: Database["public"]["Enums"]["publication_status"]
           target_url?: string | null
           updated_at?: string
@@ -2489,8 +2528,12 @@ export type Database = {
     }
     Enums: {
       autonomy_level: "MANUAL" | "AI_RECOMMENDS" | "AI_PREPARES" | "AI_EXECUTES"
-      cms_connection_status: "pending" | "active" | "error"
-      cms_provider: "wordpress"
+      cms_connection_status:
+        | "pending"
+        | "active"
+        | "error"
+        | "pending_repo_selection"
+      cms_provider: "wordpress" | "github"
       competitor_classification:
         | "DIRECT_COMPETITOR"
         | "DIRECTORY"
@@ -2508,6 +2551,10 @@ export type Database = {
         | "APPROVED"
         | "REJECTED"
       content_qa_status: "PENDING" | "PASSED" | "FAILED"
+      github_publication_mode:
+        | "GITHUB_BRANCH_ONLY"
+        | "GITHUB_PULL_REQUEST"
+        | "GITHUB_MERGE"
       issue_severity: "critical" | "high" | "medium" | "low"
       issue_status: "open" | "resolved" | "ignored"
       job_status:
@@ -2533,6 +2580,7 @@ export type Database = {
         | "CREATE_DRAFT"
         | "PUBLISH_CONTENT"
         | "ANALYSE_ACTION_OUTCOMES"
+        | "MERGE_TO_PRODUCTION"
       keyword_match_type:
         | "title"
         | "h1"
@@ -2587,6 +2635,13 @@ export type Database = {
         | "PUBLISHED"
         | "FAILED"
         | "UNPUBLISHED"
+        | "BRANCH_CREATED"
+        | "COMMITTED"
+        | "PR_CREATED"
+        | "PREVIEW_READY"
+        | "AWAITING_PRODUCTION_APPROVAL"
+        | "MERGING"
+        | "DEPLOYING"
       search_console_connection_status:
         | "pending_site_selection"
         | "active"
@@ -2750,8 +2805,13 @@ export const Constants = {
   public: {
     Enums: {
       autonomy_level: ["MANUAL", "AI_RECOMMENDS", "AI_PREPARES", "AI_EXECUTES"],
-      cms_connection_status: ["pending", "active", "error"],
-      cms_provider: ["wordpress"],
+      cms_connection_status: [
+        "pending",
+        "active",
+        "error",
+        "pending_repo_selection",
+      ],
+      cms_provider: ["wordpress", "github"],
       competitor_classification: [
         "DIRECT_COMPETITOR",
         "DIRECTORY",
@@ -2771,6 +2831,11 @@ export const Constants = {
         "REJECTED",
       ],
       content_qa_status: ["PENDING", "PASSED", "FAILED"],
+      github_publication_mode: [
+        "GITHUB_BRANCH_ONLY",
+        "GITHUB_PULL_REQUEST",
+        "GITHUB_MERGE",
+      ],
       issue_severity: ["critical", "high", "medium", "low"],
       issue_status: ["open", "resolved", "ignored"],
       job_status: ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED"],
@@ -2791,6 +2856,7 @@ export const Constants = {
         "CREATE_DRAFT",
         "PUBLISH_CONTENT",
         "ANALYSE_ACTION_OUTCOMES",
+        "MERGE_TO_PRODUCTION",
       ],
       keyword_match_type: [
         "title",
@@ -2852,6 +2918,13 @@ export const Constants = {
         "PUBLISHED",
         "FAILED",
         "UNPUBLISHED",
+        "BRANCH_CREATED",
+        "COMMITTED",
+        "PR_CREATED",
+        "PREVIEW_READY",
+        "AWAITING_PRODUCTION_APPROVAL",
+        "MERGING",
+        "DEPLOYING",
       ],
       search_console_connection_status: [
         "pending_site_selection",
@@ -2895,7 +2968,6 @@ export const Constants = {
     },
   },
 } as const
-
 // --- Convenience aliases used throughout lib/ and app/ (not part of the generated contract) ---
 
 export type MembershipRole = Database["public"]["Enums"]["membership_role"];
@@ -2919,6 +2991,7 @@ export type ContentPipelineStatus = Database["public"]["Enums"]["content_pipelin
 export type ContentQaStatus = Database["public"]["Enums"]["content_qa_status"];
 export type CmsProvider = Database["public"]["Enums"]["cms_provider"];
 export type CmsConnectionStatus = Database["public"]["Enums"]["cms_connection_status"];
+export type GithubPublicationMode = Database["public"]["Enums"]["github_publication_mode"];
 export type PublicationStatus = Database["public"]["Enums"]["publication_status"];
 // Phase 6: Autonomous SEO Optimisation Loop.
 export type SeoActionType = Database["public"]["Enums"]["seo_action_type"];

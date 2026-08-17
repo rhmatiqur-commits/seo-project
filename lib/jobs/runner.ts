@@ -14,6 +14,7 @@ import { handleReviseContent } from "@/lib/jobs/handlers/revise-content";
 import { handleCreateDraft } from "@/lib/jobs/handlers/create-draft";
 import { handlePublishContent } from "@/lib/jobs/handlers/publish-content";
 import { handleAnalyseActionOutcomes } from "@/lib/jobs/handlers/analyse-action-outcomes";
+import { handleMergeToProduction } from "@/lib/jobs/handlers/merge-to-production";
 import { getNextJobType, shouldAdvancePipeline, WORKER_LOOP_MAX_DURATION_MS, WORKER_LOOP_MAX_ITERATIONS } from "@/lib/jobs/policy";
 import { PermanentJobError, type JobHandler, type JobRow } from "@/lib/jobs/types";
 import type { JobType } from "@/lib/supabase/types";
@@ -35,6 +36,7 @@ const HANDLERS: Record<JobType, JobHandler> = {
   CREATE_DRAFT: handleCreateDraft,
   PUBLISH_CONTENT: handlePublishContent,
   ANALYSE_ACTION_OUTCOMES: handleAnalyseActionOutcomes,
+  MERGE_TO_PRODUCTION: handleMergeToProduction,
 };
 
 /**

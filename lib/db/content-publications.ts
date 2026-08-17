@@ -54,6 +54,15 @@ export interface UpdatePublicationPatch {
   publishedAt?: string | null;
   error?: string | null;
   providerResponseMetadata?: Record<string, unknown>;
+  // Phase 6A: GitHub/Vercel git-flow identifiers — all optional/undefined
+  // for a WordPress-provider row, which never sets any of these.
+  branchName?: string | null;
+  baseCommitSha?: string | null;
+  commitSha?: string | null;
+  pullRequestNumber?: number | null;
+  pullRequestUrl?: string | null;
+  previewUrl?: string | null;
+  productionCommitSha?: string | null;
 }
 
 export async function updatePublicationStatus(id: string, status: PublicationStatus, patch: UpdatePublicationPatch = {}): Promise<ContentPublicationRow> {
@@ -67,6 +76,13 @@ export async function updatePublicationStatus(id: string, status: PublicationSta
       ...(patch.publishedAt !== undefined ? { published_at: patch.publishedAt } : {}),
       ...(patch.error !== undefined ? { error: patch.error } : {}),
       ...(patch.providerResponseMetadata !== undefined ? { provider_response_metadata: jsonb(patch.providerResponseMetadata) } : {}),
+      ...(patch.branchName !== undefined ? { branch_name: patch.branchName } : {}),
+      ...(patch.baseCommitSha !== undefined ? { base_commit_sha: patch.baseCommitSha } : {}),
+      ...(patch.commitSha !== undefined ? { commit_sha: patch.commitSha } : {}),
+      ...(patch.pullRequestNumber !== undefined ? { pull_request_number: patch.pullRequestNumber } : {}),
+      ...(patch.pullRequestUrl !== undefined ? { pull_request_url: patch.pullRequestUrl } : {}),
+      ...(patch.previewUrl !== undefined ? { preview_url: patch.previewUrl } : {}),
+      ...(patch.productionCommitSha !== undefined ? { production_commit_sha: patch.productionCommitSha } : {}),
     })
     .eq("id", id)
     .select()

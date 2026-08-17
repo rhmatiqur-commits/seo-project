@@ -5,7 +5,7 @@ import { getWebsite } from "@/lib/db/websites";
 import { getCmsConnectionForWebsite, getDecryptedCredential } from "@/lib/db/cms-connections";
 import { isContentApprovedForPublication } from "@/lib/publishing/eligibility";
 import { resolvePublicationTargetUrl, slugFromUrl, isValidSlug } from "@/lib/publishing/url";
-import { createPublishingProvider } from "@/lib/publishing/get-provider";
+import { createPublishingProvider, buildPublishingConnectionConfig } from "@/lib/publishing/get-provider";
 import { PermanentJobError } from "@/lib/jobs/types";
 import type { PublishingProvider } from "@/lib/publishing/provider";
 import type { ContentBrief } from "@/lib/content/brief-types";
@@ -76,10 +76,10 @@ export async function loadAndValidatePublishingContext(payload: { content_public
   });
   if (!targetUrl) throw new PermanentJobError("No target URL could be resolved for this publication (brief has neither an existing page URL nor a recommended URL).");
   const slug = slugFromUrl(targetUrl);
-  if (!isValidSlug(slug)) throw new PermanentJobError(`Resolved slug "${slug}" is not a valid WordPress slug.`);
+  if (!isValidSlug(slug)) throw new PermanentJobError(`Resolved slug "${slug}" is not a valid slug.`);
 
-  const applicationPassword = await getDecryptedCredential(connection.credential_secret_id);
-  const provider = createPublishingProvider({ provider: connection.provider, baseUrl: connection.base_url, username: connection.username, applicationPassword });
+  const decryptedSecret = await getDecryptedCredential(connection.credential_secret_id);
+  const provider = createPublishingProvider(buildPublishingConnectionConfig(connection, decryptedSecret));
 
   return { publication, version, brief, contentJob, connection, provider, slug, targetUrl };
 }

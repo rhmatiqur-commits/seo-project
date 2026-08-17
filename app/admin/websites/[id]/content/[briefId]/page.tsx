@@ -15,6 +15,7 @@ import {
   rejectContentAction,
   createDraftAction,
   publishContentAction,
+  mergeToProductionAction,
 } from "@/app/admin/actions";
 import type { ContentBrief } from "@/lib/content/brief-types";
 
@@ -275,31 +276,82 @@ export default async function ContentBriefPage({ params }: { params: Promise<{ i
                     </a>
                   </>
                 )}
+                {connection?.provider === "github" && publication.pull_request_url && (
+                  <>
+                    {" "}
+                    &middot;{" "}
+                    <a href={publication.pull_request_url} target="_blank" rel="noreferrer">
+                      PR #{publication.pull_request_number} &rarr;
+                    </a>
+                  </>
+                )}
+                {connection?.provider === "github" && publication.preview_url && (
+                  <>
+                    {" "}
+                    &middot;{" "}
+                    <a href={publication.preview_url} target="_blank" rel="noreferrer">
+                      Preview deployment &rarr;
+                    </a>
+                  </>
+                )}
+                {connection?.provider === "github" && publication.branch_name && <> &middot; branch: {publication.branch_name}</>}
               </p>
             )}
             {publication?.error && <div className="notice">{publication.error}</div>}
-            <div className="row">
-              <form action={createDraftAction}>
-                <input type="hidden" name="content_version_id" value={latestVersion.id} />
-                <input type="hidden" name="website_id" value={website.id} />
-                <input type="hidden" name="organization_id" value={website.organization_id} />
-                <button className="btn secondary" type="submit" disabled={!canPublish}>
-                  {publication?.status === "FAILED" ? "Retry: Create Draft" : "Create Draft"}
-                </button>
-              </form>
-              <form action={publishContentAction}>
-                <input type="hidden" name="content_version_id" value={latestVersion.id} />
-                <input type="hidden" name="website_id" value={website.id} />
-                <input type="hidden" name="organization_id" value={website.organization_id} />
-                <button className="btn" type="submit" disabled={!canPublish}>
-                  {publication?.status === "FAILED" ? "Retry: Publish" : "Publish"}
-                </button>
-              </form>
-            </div>
-            <p className="muted" style={{ marginTop: "8px" }}>
-              Create Draft never makes the page public. Publish is the only action that does — clicking it confirms you want &quot;{brief.primaryKeyword?.text ?? briefRow.primary_keyword}&quot; live at{" "}
-              {publication?.target_url ?? briefRow.target_url ?? "the resolved target URL"} on {connection?.baseUrl ?? "the connected site"}.
-            </p>
+
+            {connection?.provider === "github" ? (
+              <>
+                <div className="row">
+                  <form action={createDraftAction}>
+                    <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                    <input type="hidden" name="website_id" value={website.id} />
+                    <input type="hidden" name="organization_id" value={website.organization_id} />
+                    <button className="btn secondary" type="submit" disabled={!canPublish}>
+                      {publication?.status === "FAILED" ? "Retry: Prepare Publication" : "Prepare Publication (branch + PR)"}
+                    </button>
+                  </form>
+                  <form action={mergeToProductionAction}>
+                    <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                    <input type="hidden" name="website_id" value={website.id} />
+                    <input type="hidden" name="organization_id" value={website.organization_id} />
+                    <button className="btn" type="submit" disabled={!canPublish || !publication?.pull_request_number}>
+                      {publication?.status === "FAILED" && publication.pull_request_number ? "Retry: Merge to Production" : "Merge to Production"}
+                    </button>
+                  </form>
+                </div>
+                <p className="muted" style={{ marginTop: "8px" }}>
+                  &quot;Prepare Publication&quot; opens a pull request — never live, Vercel deploys a preview only. &quot;Merge to
+                  Production&quot; is the only action that makes &quot;{brief.primaryKeyword?.text ?? briefRow.primary_keyword}&quot; live at{" "}
+                  {publication?.target_url ?? briefRow.target_url ?? "the resolved target URL"} — only enabled once a pull request
+                  exists, and review the preview deployment above first.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="row">
+                  <form action={createDraftAction}>
+                    <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                    <input type="hidden" name="website_id" value={website.id} />
+                    <input type="hidden" name="organization_id" value={website.organization_id} />
+                    <button className="btn secondary" type="submit" disabled={!canPublish}>
+                      {publication?.status === "FAILED" ? "Retry: Create Draft" : "Create Draft"}
+                    </button>
+                  </form>
+                  <form action={publishContentAction}>
+                    <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                    <input type="hidden" name="website_id" value={website.id} />
+                    <input type="hidden" name="organization_id" value={website.organization_id} />
+                    <button className="btn" type="submit" disabled={!canPublish}>
+                      {publication?.status === "FAILED" ? "Retry: Publish" : "Publish"}
+                    </button>
+                  </form>
+                </div>
+                <p className="muted" style={{ marginTop: "8px" }}>
+                  Create Draft never makes the page public. Publish is the only action that does — clicking it confirms you want &quot;{brief.primaryKeyword?.text ?? briefRow.primary_keyword}&quot; live at{" "}
+                  {publication?.target_url ?? briefRow.target_url ?? "the resolved target URL"} on {connection?.baseUrl ?? "the connected site"}.
+                </p>
+              </>
+            )}
           </>
         )}
       </div>
