@@ -101,6 +101,9 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
         <Link className="btn secondary" href={`/admin/websites/${website.id}/publishing`}>
           Publishing &rarr;
         </Link>
+        <Link className="btn secondary" href={`/admin/websites/${website.id}/outcomes`}>
+          Outcomes &rarr;
+        </Link>
       </p>
 
       <h2>Recent jobs</h2>

@@ -9,6 +9,8 @@ import {
   shouldEnqueueSearchConsoleSync,
   isDueForSerpFetch,
   shouldEnqueueSerpFetch,
+  isDueForActionOutcomesAnalysis,
+  shouldEnqueueActionOutcomesAnalysis,
   isStaleProcessing,
   isRetryEligible,
   getNextJobType,
@@ -127,6 +129,40 @@ test("shouldEnqueueSerpFetch: due website with no active job -> enqueue", () => 
   assert.equal(shouldEnqueueSerpFetch({ status: "active", next_serp_fetch_at: null }, null, NOW), true);
 });
 
+// --- Phase 6: ANALYSE_ACTION_OUTCOMES's own daily-default schedule (mirrors isDueForSerpFetch/shouldEnqueueSerpFetch exactly) ---
+
+test("isDueForActionOutcomesAnalysis: active website with no next_action_outcomes_at is due (first-ever run)", () => {
+  assert.equal(isDueForActionOutcomesAnalysis({ status: "active", next_action_outcomes_at: null }, NOW), true);
+});
+
+test("isDueForActionOutcomesAnalysis: active website whose next_action_outcomes_at has passed is due", () => {
+  assert.equal(isDueForActionOutcomesAnalysis({ status: "active", next_action_outcomes_at: minutesAgo(5) }, NOW), true);
+});
+
+test("isDueForActionOutcomesAnalysis: active website whose next_action_outcomes_at is in the future is not due", () => {
+  assert.equal(isDueForActionOutcomesAnalysis({ status: "active", next_action_outcomes_at: minutesFromNow(5) }, NOW), false);
+});
+
+test("isDueForActionOutcomesAnalysis: paused website is never due", () => {
+  assert.equal(isDueForActionOutcomesAnalysis({ status: "paused", next_action_outcomes_at: minutesAgo(999) }, NOW), false);
+});
+
+test("isDueForActionOutcomesAnalysis: archived website is never due", () => {
+  assert.equal(isDueForActionOutcomesAnalysis({ status: "archived", next_action_outcomes_at: minutesAgo(999) }, NOW), false);
+});
+
+test("shouldEnqueueActionOutcomesAnalysis: due website with an already-active analysis job -> do not enqueue (idempotency)", () => {
+  assert.equal(shouldEnqueueActionOutcomesAnalysis({ status: "active", next_action_outcomes_at: null }, { id: "existing" }, NOW), false);
+});
+
+test("shouldEnqueueActionOutcomesAnalysis: due website with no active job -> enqueue", () => {
+  assert.equal(shouldEnqueueActionOutcomesAnalysis({ status: "active", next_action_outcomes_at: null }, null, NOW), true);
+});
+
+test("shouldEnqueueActionOutcomesAnalysis: not-yet-due website is never enqueued regardless of active-job state", () => {
+  assert.equal(shouldEnqueueActionOutcomesAnalysis({ status: "active", next_action_outcomes_at: minutesFromNow(5) }, null, NOW), false);
+});
+
 // --- 4. Stale processing-job recovery ---
 
 test("isStaleProcessing: PROCESSING job started well past the threshold is stale", () => {
@@ -202,6 +238,10 @@ test("getNextJobType: GENERATE_CONTENT/QA_CONTENT/REVISE_CONTENT are never auto-
 test("getNextJobType: CREATE_DRAFT/PUBLISH_CONTENT are never auto-chained — two explicit, independently human-triggered actions (Phase 5)", () => {
   assert.equal(getNextJobType("CREATE_DRAFT"), null);
   assert.equal(getNextJobType("PUBLISH_CONTENT"), null);
+});
+
+test("getNextJobType: ANALYSE_ACTION_OUTCOMES is terminal — its own independent daily schedule decides when it starts, not a chain off sync/publish (Phase 6)", () => {
+  assert.equal(getNextJobType("ANALYSE_ACTION_OUTCOMES"), null);
 });
 
 // --- 7 & 8. Successful crawl triggers next stage / failed crawl does not ---

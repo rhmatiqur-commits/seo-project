@@ -181,6 +181,31 @@ export async function listSearchConsoleMetricsForKeywordOrPage(
   return data;
 }
 
+/** Every real GSC row for one specific query and/or page URL within a date
+ * range (inclusive) — the Phase 6 outcome-measurement input. Unlike
+ * listSearchConsoleMetricsForKeywordOrPage (Phase 4's small "recent rows for
+ * context" helper), this returns every matching row so
+ * lib/outcomes/aggregate.ts's aggregateWindowMetrics can sum a full
+ * baseline/measurement window rather than a truncated sample. Matches on
+ * query AND page_url together when both are given (a keyword tied to a
+ * specific target page), on whichever one is given otherwise; returns []
+ * when neither is available. */
+export async function listSearchConsoleMetricsForSubjectInRange(
+  websiteId: string,
+  filter: { query?: string | null; pageUrl?: string | null },
+  startDate: string,
+  endDate: string
+): Promise<MetricRow[]> {
+  if (!filter.query && !filter.pageUrl) return [];
+  const db = supabaseAdmin();
+  let query = db.from("search_console_metrics").select("*").eq("website_id", websiteId).gte("date", startDate).lte("date", endDate);
+  if (filter.query) query = query.ilike("query", filter.query);
+  if (filter.pageUrl) query = query.eq("page_url", filter.pageUrl);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+}
+
 export interface SearchConsoleStats {
   totalRows: number;
   totalClicks: number;

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MAX_KEYWORDS_PER_DISCOVERY_RUN } from "@/lib/keywords/limits";
 import { MAX_AI_INTERPRETATIONS_PER_RUN } from "@/lib/search-performance/limits";
 import { MIN_SEO_TITLE_LENGTH, MAX_SEO_TITLE_LENGTH, MIN_META_DESCRIPTION_LENGTH, MAX_META_DESCRIPTION_LENGTH } from "@/lib/content/limits";
+import { MAX_AI_INTERPRETATIONS_PER_RUN as MAX_OUTCOME_AI_INTERPRETATIONS_PER_RUN } from "@/lib/outcomes/limits";
 
 /**
  * Structured output contract for the SEO opportunity-generation call.
@@ -313,5 +314,72 @@ export const contentQaJsonSchema = {
     addresses_likely_question: { type: "boolean", description: "Does the content actually answer the question/need implied by the primary keyword?" },
     feels_generic_or_repetitive: { type: "boolean", description: "True if the content reads as generic filler or repeats itself rather than saying something concrete." },
     notes: { type: "string", description: "1-3 sentences of concrete, actionable feedback — this becomes revision guidance if QA fails. Never state a specific ranking/traffic number." },
+  },
+} as const;
+
+/**
+ * Structured output contract for ANALYSE_ACTION_OUTCOMES' optional AI
+ * interpretation pass (Phase 6). Every deterministic number — the baseline,
+ * the current metrics, the deltas, the classification, the recommendation —
+ * was already computed in TypeScript (lib/outcomes/*) before this call. The
+ * AI's job is strictly interpretation, same "TypeScript calculates, AI
+ * interprets" principle as Phase 2D's search-performance pass.
+ *
+ * AI safety constraints, enforced structurally: no field anywhere for
+ * clicks, impressions, position, CTR, or any percentage/number the model
+ * might be tempted to recompute or invent; no field that could restate or
+ * override `classification`/`recommendation` (those are read-only inputs to
+ * the prompt, never outputs here) — the model cannot mark an
+ * INSUFFICIENT_DATA outcome as anything else because there is nowhere in
+ * this schema to say so. `outcome_id` lets the handler map each
+ * interpretation back to the seo_action_outcomes row it belongs to.
+ */
+
+const actionOutcomeInterpretationItemSchema = z.object({
+  outcome_id: z.string().min(1),
+  interpretation: z.string().min(10).max(800),
+  next_step_note: z.string().min(5).max(500),
+  risk_notes: z.string().max(500).nullable(),
+  competitor_context_note: z.string().max(400).nullable(),
+});
+
+export const actionOutcomeInterpretationSchema = z.object({
+  interpretations: z.array(actionOutcomeInterpretationItemSchema).max(MAX_OUTCOME_AI_INTERPRETATIONS_PER_RUN),
+});
+
+export type ActionOutcomeInterpretation = z.infer<typeof actionOutcomeInterpretationSchema>;
+export type ActionOutcomeInterpretationItem = z.infer<typeof actionOutcomeInterpretationItemSchema>;
+
+export const actionOutcomeInterpretationJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["interpretations"],
+  properties: {
+    interpretations: {
+      type: "array",
+      maxItems: MAX_OUTCOME_AI_INTERPRETATIONS_PER_RUN,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["outcome_id", "interpretation", "next_step_note", "risk_notes", "competitor_context_note"],
+        properties: {
+          outcome_id: { type: "string", description: "Must exactly match the id of one of the outcomes given in the prompt." },
+          interpretation: {
+            type: "string",
+            description:
+              "Plain-language explanation of why this result may have happened, grounded only in the deterministic classification/deltas/signals given. Use cautious, observational language ('may explain', 'is consistent with') — never state that this action caused a specific outcome as established fact.",
+          },
+          next_step_note: {
+            type: "string",
+            description: "What's worth investigating or doing next, consistent with (never contradicting) the already-assigned recommendation given in the prompt.",
+          },
+          risk_notes: { type: ["string", "null"], description: "Risks or caveats worth flagging (e.g. sample still thin, seasonality, a concurrent change elsewhere), or null if none apply." },
+          competitor_context_note: {
+            type: ["string", "null"],
+            description: "Only non-null if the prompt's competitor_context actually gives you something concrete to reference — never invent or assume competitor activity you weren't told about.",
+          },
+        },
+      },
+    },
   },
 } as const;

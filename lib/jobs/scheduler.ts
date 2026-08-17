@@ -3,7 +3,13 @@ import { listActiveWebsites } from "@/lib/db/websites";
 import { listActiveWebsitesWithSearchConsoleConnection } from "@/lib/db/search-console";
 import { createSchedulerRun, completeSchedulerRun } from "@/lib/db/scheduler-runs";
 import { processPendingJobs } from "@/lib/jobs/runner";
-import { shouldEnqueueWebsiteCrawl, shouldEnqueueKeywordDiscovery, shouldEnqueueSearchConsoleSync, shouldEnqueueSerpFetch } from "@/lib/jobs/policy";
+import {
+  shouldEnqueueWebsiteCrawl,
+  shouldEnqueueKeywordDiscovery,
+  shouldEnqueueSearchConsoleSync,
+  shouldEnqueueSerpFetch,
+  shouldEnqueueActionOutcomesAnalysis,
+} from "@/lib/jobs/policy";
 
 export interface SchedulerSummary {
   schedulerRunId: string;
@@ -16,6 +22,8 @@ export interface SchedulerSummary {
   searchConsoleSyncJobsSkippedDuplicate: number;
   serpFetchJobsCreated: number;
   serpFetchJobsSkippedDuplicate: number;
+  actionOutcomesJobsCreated: number;
+  actionOutcomesJobsSkippedDuplicate: number;
   staleRecovered: number;
   jobsRetried: number;
   worker: { processed: number; completed: number; failed: number; iterations: number; stoppedReason: string };
@@ -193,6 +201,35 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       }
     }
 
+    // 3e. Same due-check-and-enqueue for ANALYSE_ACTION_OUTCOMES (Phase 6),
+    // on its own independent per-website schedule (next_action_outcomes_at /
+    // action_outcomes_frequency_days, default daily) — not scoped to any
+    // connection prerequisite (a website with EXECUTED actions but no
+    // Search Console data yet just gets INSUFFICIENT_DATA outcomes, which is
+    // itself a correct, cheap result to compute and store).
+    let actionOutcomesJobsCreated = 0;
+    let actionOutcomesJobsSkippedDuplicate = 0;
+    for (const website of websites) {
+      const existingActiveOutcomesJob = await findActiveJob(website.id, "ANALYSE_ACTION_OUTCOMES");
+      if (!shouldEnqueueActionOutcomesAnalysis(website, existingActiveOutcomesJob, now)) {
+        if (existingActiveOutcomesJob) actionOutcomesJobsSkippedDuplicate++;
+        continue;
+      }
+      console.log(`[scheduler] website ${website.id} (${website.name}) is due for action-outcome analysis`);
+      const { created } = await createJob({
+        organization_id: website.organization_id,
+        website_id: website.id,
+        job_type: "ANALYSE_ACTION_OUTCOMES",
+        idempotency_key: `ANALYSE_ACTION_OUTCOMES:${website.id}`,
+      });
+      if (created) {
+        actionOutcomesJobsCreated++;
+        console.log(`[scheduler] created ANALYSE_ACTION_OUTCOMES job for ${website.id}`);
+      } else {
+        actionOutcomesJobsSkippedDuplicate++;
+      }
+    }
+
     // 4. Explicitly process the queue within this invocation (bounded), so
     // the pipeline advances as far as it can before returning — see
     // lib/jobs/runner.ts processPendingJobs and lib/jobs/policy.ts for the budget.
@@ -223,12 +260,14 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
           searchConsoleSyncJobsSkippedDuplicate,
           serpFetchJobsCreated,
           serpFetchJobsSkippedDuplicate,
+          actionOutcomesJobsCreated,
+          actionOutcomesJobsSkippedDuplicate,
         },
       }
     );
 
     console.log(
-      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} serpFetchCreated=${serpFetchJobsCreated} staleRecovered=${stale.length} retried=${jobsRetried} workerProcessed=${worker.processed}`
+      `[scheduler] sweep complete: websites=${websites.length} crawlsCreated=${crawlJobsCreated} keywordDiscoveryCreated=${keywordDiscoveryJobsCreated} searchConsoleSyncCreated=${searchConsoleSyncJobsCreated} serpFetchCreated=${serpFetchJobsCreated} actionOutcomesCreated=${actionOutcomesJobsCreated} staleRecovered=${stale.length} retried=${jobsRetried} workerProcessed=${worker.processed}`
     );
 
     return {
@@ -242,6 +281,8 @@ export async function runScheduledSweep(): Promise<SchedulerSummary> {
       searchConsoleSyncJobsSkippedDuplicate,
       serpFetchJobsCreated,
       serpFetchJobsSkippedDuplicate,
+      actionOutcomesJobsCreated,
+      actionOutcomesJobsSkippedDuplicate,
       staleRecovered: stale.length,
       jobsRetried,
       worker,

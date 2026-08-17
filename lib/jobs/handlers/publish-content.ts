@@ -5,6 +5,7 @@ import { decidePublishAction } from "@/lib/publishing/retry-strategy";
 import { markdownToHtml } from "@/lib/publishing/markdown";
 import { WordPressApiError } from "@/lib/publishing/errors";
 import { PermanentJobError } from "@/lib/jobs/types";
+import { recordSeoActionForPublication } from "@/lib/jobs/handlers/record-seo-action";
 import type { PublishPageInput } from "@/lib/publishing/provider";
 import type { ContentMetadata } from "@/lib/content/provider";
 import type { JobHandler } from "@/lib/jobs/types";
@@ -60,6 +61,15 @@ export const handlePublishContent: JobHandler = async ({ job }) => {
       action: "PUBLISHED",
       targetUrl: result.url,
       result: "success",
+    });
+
+    // Phase 6: this is the moment a content action becomes measurable —
+    // closes the loop SEO ACTION -> PUBLICATION -> ... -> SEARCH CONSOLE.
+    // Soft-failed: a seo_actions bookkeeping problem must never undo an
+    // already-successful publish (same "additive, never blocking" posture
+    // as the AI-interpretation passes elsewhere in this codebase).
+    await recordSeoActionForPublication(ctx, result.url).catch((error) => {
+      console.warn(`[jobs] failed to record seo_action for content_publication ${ctx.publication.id}, continuing:`, error);
     });
 
     return { contentPublicationId: ctx.publication.id, externalId: result.externalId, url: result.url, action };
