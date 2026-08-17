@@ -11,6 +11,13 @@ export async function insertTask(input: TaskInsert): Promise<TaskRow> {
   return data;
 }
 
+export async function getTask(id: string): Promise<TaskRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("seo_tasks").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function listTasksForWebsite(websiteId: string): Promise<TaskRow[]> {
   const db = supabaseAdmin();
   const { data, error } = await db

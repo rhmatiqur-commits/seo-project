@@ -114,6 +114,27 @@ export function shouldEnqueueSerpFetch(website: SerpFetchScheduleInfo, existingA
   return isDueForSerpFetch(website, now) && existingActiveJob === null;
 }
 
+export interface ActionOutcomesScheduleInfo {
+  status: "active" | "paused" | "archived";
+  next_action_outcomes_at: string | null;
+}
+
+/** Mirrors isDueForCrawl/isDueForSerpFetch, but against Phase 6's action-
+ * outcome analysis cadence (websites.next_action_outcomes_at /
+ * action_outcomes_frequency_days, default daily) — its own independent
+ * schedule, not chained off Search Console sync, since a website can have
+ * EXECUTED actions worth re-checking (a later measurement window becoming
+ * due) even between syncs. */
+export function isDueForActionOutcomesAnalysis(website: ActionOutcomesScheduleInfo, now: Date): boolean {
+  if (website.status !== "active") return false;
+  if (!website.next_action_outcomes_at) return true;
+  return new Date(website.next_action_outcomes_at).getTime() <= now.getTime();
+}
+
+export function shouldEnqueueActionOutcomesAnalysis(website: ActionOutcomesScheduleInfo, existingActiveJob: unknown | null, now: Date): boolean {
+  return isDueForActionOutcomesAnalysis(website, now) && existingActiveJob === null;
+}
+
 export interface StaleCheckJob {
   status: JobStatus;
   started_at: string | null;
@@ -204,6 +225,14 @@ export function getNextJobType(jobType: JobType): JobType | null {
       // many content_publications can be in flight per website at once, and
       // Create Draft / Publish are two explicit, independently human-
       // triggered actions (Phase 5), never auto-chained into each other.
+      return null;
+    case "ANALYSE_ACTION_OUTCOMES":
+      // Terminal, and — like ANALYSE_SEARCH_PERFORMANCE — also independently
+      // manually triggerable. Its own recurring schedule (see
+      // isDueForActionOutcomesAnalysis above) decides when it starts, not a
+      // chain off SEARCH_CONSOLE_SYNC/PUBLISH_CONTENT — a website can have
+      // EXECUTED actions worth re-checking on any given day regardless of
+      // whether either of those just ran.
       return null;
     default:
       return null;

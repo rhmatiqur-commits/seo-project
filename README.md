@@ -66,6 +66,14 @@ APPROVED content → PublishingProvider → WordPress → CREATE_DRAFT (never pu
 
 The one rule repeated throughout this phase: there is **no path** from AI-generated content to a live page without an explicit human "Publish" click, and every publish request re-verifies `content_jobs.status === 'APPROVED'` **server-side**, from the database, never from anything the browser sent. WordPress is the first `PublishingProvider` implementation, authenticated via WordPress's own Application Passwords (never the account's real login), with credentials encrypted through Supabase Vault — already installed on this project, so nothing was invented for credential storage either.
 
+**Phase 6** closes the outer loop — the platform learns from what its own actions actually did:
+
+```
+SEO ACTION (published page / completed task) → GOOGLE → SEARCH CONSOLE → deterministic BASELINE vs CURRENT comparison → classified OUTCOME → optional AI interpretation → NEXT SEO DECISION → follow-up SEO TASK → repeat
+```
+
+`seo_actions` connects an already-existing `content_publications` row (or a completed non-content `seo_tasks` row) to a target URL/keyword; `seo_action_outcomes` holds one deterministic, TypeScript-computed row per `(action, measurement window)` — never a single-metric verdict, never a causal claim ("Position improved from 14.2 to 9.8 following publication," never "our change increased rankings by X"). AI is used only after every number is already final, to interpret *why*, never to calculate. A bounded set of outcomes (`DIAGNOSE_DECLINE`/`INVESTIGATE_CTR`) automatically creates a follow-up task through the *existing* `seo_opportunities`/`seo_tasks` system — the platform never keeps changing a page that's already succeeding, and never concludes anything from insufficient data. See the dedicated section below.
+
 ## Architecture
 
 - **Framework**: Next.js 16 (App Router) + TypeScript. One app serves both the JSON API (`app/api/**`, Route Handlers) and a deliberately plain internal admin UI (`app/admin/**`, server components + server actions — no client-side framework, no design investment).
@@ -82,6 +90,7 @@ The one rule repeated throughout this phase: there is **no path** from AI-genera
 - **Competitor & SERP Intelligence** (Phase 3): `lib/dataforseo/client.ts` — one shared Basic-Auth HTTP client used by both `lib/serp/dataforseo-serp-provider.ts` (`SerpDataProvider`) and `lib/keywords/dataforseo-provider.ts` (`KeywordDataProvider`). `lib/serp/*` holds deterministic classification/scoring/aggregation/overlap modules; 3 new detectors reuse Phase 2D's exact pipeline (`lib/jobs/handlers/search-performance-shared.ts`, extracted from `analyse-search-performance.ts` in this phase so both jobs share one code path). See the dedicated section below.
 - **Content Execution Engine** (Phase 4): `lib/content/*` — a `ContentProvider` interface (`provider.ts`/`get-provider.ts`, mirrors `AIProvider`'s shape) with an `AiContentProvider` implementation; a pure `buildContentBrief()` assembling a structured brief from already-collected Phase 1-3 data (`build-brief.ts`); a deterministic+AI QA system (`qa/*` — ~13 pure checks, one soft-failing AI rating call, a pure score/pass combiner); a pure approval state-machine (`state-machine.ts`). Three new job types (`GENERATE_CONTENT`/`QA_CONTENT`/`REVISE_CONTENT`, `lib/jobs/handlers/*-content.ts`) self-chain scoped by `content_job_id` rather than the generic website-scoped pipeline mechanism, since many content briefs can be in flight per website at once. See the dedicated section below.
 - **Publishing Engine** (Phase 5): `lib/publishing/*` — a `PublishingProvider` interface (`provider.ts`/`get-provider.ts`, a per-call factory since credentials are per-website, not a process-wide singleton) with a `WordPressPublishingProvider` implementation (hand-rolled `fetch` against the official WP REST API, no scraping); pure `retry-strategy.ts` (the "before retrying, check whether the page already exists" decision), `errors.ts` (permanent-vs-retryable classification), `url.ts` (never let an AI recommendation silently rename an existing page), `markdown.ts` (body Markdown → the HTML WordPress's REST API expects). Credentials are encrypted via **Supabase Vault** (`vault` schema + `pgsodium`, already installed on this project) through 4 `SECURITY DEFINER` wrapper functions (migration `0018`), never a plaintext column. Two new job types (`CREATE_DRAFT`/`PUBLISH_CONTENT`) self-chain scoped by `content_publication_id`, same reasoning as Phase 4's content jobs. A new generic job-engine primitive, `PermanentJobError` (`lib/jobs/types.ts`), lets any handler mark a failure as never-retryable (content not APPROVED, bad credentials, ...) — `lib/jobs/runner.ts` jumps `retry_count` straight to `max_retries` when it catches one. See the dedicated section below.
+- **Autonomous SEO Optimisation Loop** (Phase 6): `lib/outcomes/*` — pure, unit-tested modules only (baseline/measurement-window date math, metric aggregation, delta computation, minimum-data gating, outcome classification, next-action recommendation, new-page lifecycle staging, alert-threshold evaluation, autonomy-level policy, follow-up-task decision) — zero DB/AI dependency, same "TypeScript calculates, AI interprets" principle as Phase 2D. `lib/jobs/handlers/analyse-action-outcomes.ts` is the composition layer: one new job type, `ANALYSE_ACTION_OUTCOMES`, its own independent per-website schedule. `lib/jobs/handlers/record-seo-action.ts` is where a `seo_actions` row is actually created — hooked into `publish-content.ts` (on `PUBLISHED`) and `app/admin/actions.ts`'s `updateTaskStatusAction` (on a non-content task marked `completed`). See the dedicated section below.
 
 ```
 app/
@@ -93,12 +102,14 @@ app/
     websites/[id]/competitors/  Competitor & SERP Intelligence: competitors, SERPs, provider usage
     websites/[id]/content/  Content Execution: brief list, per-brief review/editor page
     websites/[id]/publishing/  CMS connection form/status, recent publications
+    websites/[id]/outcomes/  SEO Performance & Outcomes: overview, alerts, action outcomes, new-page lifecycle, autonomy level (Phase 6)
   api/               JSON API route handlers (Basic-Auth-gated, Phase 2D — see SECURITY_AUDIT.md)
     scheduler/run/    CRON_SECRET-gated scheduled sweep entrypoint (excluded from Basic Auth)
     websites/[id]/keyword-discovery/  manual KEYWORD_DISCOVERY trigger
     websites/[id]/search-console-sync/  manual SEARCH_CONSOLE_SYNC trigger
     websites/[id]/search-performance-analysis/  manual ANALYSE_SEARCH_PERFORMANCE trigger
     websites/[id]/serp-fetch/  manual FETCH_SERP_RESULTS trigger
+    websites/[id]/action-outcomes-analysis/  manual ANALYSE_ACTION_OUTCOMES trigger (Phase 6)
     content-briefs/[id]/generate/  manual GENERATE_CONTENT trigger
     content-versions/[id]/publish/  manual PUBLISH_CONTENT trigger
     auth/google-search-console/start|callback/  OAuth flow (callback excluded from Basic Auth by necessity; state-signed)
@@ -115,6 +126,7 @@ lib/
   dataforseo/            shared low-level HTTP client used by both the SERP and keyword DataForSEO providers
   content/                ContentProvider abstraction, brief builder, deterministic+AI QA (qa/*), approval state-machine (Phase 4)
   publishing/             PublishingProvider abstraction, WordPress implementation, retry-strategy/errors/url/markdown pure modules (Phase 5)
+  outcomes/               pure baseline/window/delta/classification/recommendation/lifecycle/alert/autonomy/follow-up modules (Phase 6)
   api/                   lib/api/authorize.ts (IDOR guard), lib/api/respond.ts (route helpers)
   db/                    typed query helpers, one file per entity
 supabase/migrations/  versioned SQL (source of truth; applied via Supabase MCP)
@@ -124,10 +136,10 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 
 ## Database schema
 
-34 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0019_fix_cms_credential_description_default.sql`) for the full source of truth.
+37 tables, UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0021_action_outcomes.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
-- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and four **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), and `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all four; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below). `business_description`/`target_audience`/`brand_voice`/`content_constraints` (Phase 4) — nullable, admin-editable business facts the content brief reads; never auto-filled, a null value is surfaced to both the human reviewer and the QA factuality check instead.
+- **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and five **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below), and `next_action_outcomes_at`/`action_outcomes_frequency_days` (default 1 — daily, Phase 6; cheap to run daily since the job is a no-op when nothing is due). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all five; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below); `ANALYSE_ACTION_OUTCOMES` (Phase 6) deliberately does *not* chain the same way — see its own section. `business_description`/`target_audience`/`brand_voice`/`content_constraints` (Phase 4) — nullable, admin-editable business facts the content brief reads; never auto-filled, a null value is surfaced to both the human reviewer and the QA factuality check instead. `autonomy_level` (Phase 6, default `AI_RECOMMENDS`) — see "Autonomy levels" below.
 - **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by every schedule.
 - **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error (keyword-discovery counts live in the `summary` jsonb column). Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
 - **website_pages** — one row per crawled URL: status, title, meta description, H1, headings (jsonb), word count, canonical, noindex, structured-data types, image/link counts, orphan flag, redirect chain (jsonb).
@@ -157,6 +169,9 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 - **cms_connections** (Phase 5) — one row per website (`unique(website_id)`): `provider` (`'wordpress'` today), `base_url`, `username`, `credential_secret_id` (a **Supabase Vault** secret id — the encrypted Application Password itself lives in `vault.secrets`/`vault.decrypted_secrets`, never in this table; see "Publishing Engine" below), `status` (`pending`/`active`/`error`), `last_tested_at`/`last_test_error`. Any credential change resets `status` to `pending` — a connection is never trusted again until explicitly re-tested.
 - **content_publications** (Phase 5) — **one row per content_version's publication lineage**, updated in place across every retry (not re-inserted) — this is what makes an `external_id` learned on attempt 1 visible to attempt 2's duplicate-prevention check. `publication_type` reuses `opportunity_type` (only `CREATE_NEW_PAGE`/`OPTIMISE_EXISTING_PAGE`); `status` (`PENDING`/`PUBLISHING`/`DRAFTED`/`PUBLISHED`/`FAILED`/`UNPUBLISHED`); `provider_response_metadata` jsonb holds only a non-sensitive subset of the provider's response, never credentials.
 - **publication_audit_log** (Phase 5) — who approved/initiated what, when, and the result — `action`/`actor`/`target_url`/`result`/`failure_reason`. `actor` is currently always the constant `"admin"` (there is no per-user auth system yet — see `SECURITY_AUDIT.md`'s documented, deferred limitation); this is an honest placeholder, not fabricated per-user attribution, ready for real identity once it exists.
+- **seo_actions** (Phase 6) — the traceability spine: one row per executed SEO action, connecting a `content_publications` row (or a completed non-content `seo_task_id`) to a `target_url`/`target_keyword_id`/`target_keyword_text`. `action_type` is its own 8-value enum (deliberately not a reuse of `opportunity_type`/`detector_type` — see migration `0021`'s comment). `executed_at` is what baseline/measurement windows are computed relative to. `baseline_*` columns hold the pre-action snapshot, captured exactly once (`baseline_captured_at`) and never overwritten. `hypothesis`/`expected_outcome`/`measurement_window_days`/`conclusion` are nullable, unused-by-default columns laying the ground for future real experiments (Phase 6 explicitly does not build A/B testing) — see "Experimental tracking foundation" below.
+- **seo_action_outcomes** (Phase 6) — one row per `(seo_action, measurement_window_days ∈ {7,14,28,56})`, upserted so re-running analysis before a window's numbers meaningfully change just refreshes the row. Holds `baseline_metrics`/`current_metrics`/`deltas` jsonb snapshots, a deterministic `data_sufficient` flag + `classification` (`POSITIVE`/`NEGATIVE`/`MIXED`/`INCONCLUSIVE`/`INSUFFICIENT_DATA`) + `classification_reasoning`, a deterministic `recommendation`, an optional `page_lifecycle_stage` (new pages only), and separate `ai_interpretation`/`ai_risk_notes`/`ai_analysed_at` columns — additive AI output never mixed with the deterministic fields. `follow_up_task_id` is the duplicate-follow-up-task-prevention mechanism.
+- **seo_alerts** (Phase 6) — internal notifications, only ever created when a configurable threshold in `lib/outcomes/alerts.ts` is exceeded; deduplicated per `(seo_action_outcome_id, alert_type)` via a unique index so re-running analysis never spams the same alert twice.
 
 RLS: every tenant table is scoped via an `is_org_member(organization_id)` helper function checked against `memberships` (tables without a direct `organization_id`, like `keyword_metrics`/`keyword_page_matches`, join through `keywords` to reach it). The service-role key bypasses this by design (Phase 1); it exists for Phase 2 client-facing access.
 
@@ -571,10 +586,92 @@ Admin UI: connect WordPress on a website's Publishing page (`/admin/websites/[id
 curl -X POST http://localhost:3000/api/content-versions/<version-id>/publish -u admin:$ADMIN_PASSWORD
 ```
 
-## What remains for Phase 6+
+## Autonomous SEO Optimisation Loop (Phase 6)
+
+Connects everything the platform has already built into a closed loop: an executed SEO action → real Google Search Console performance → a deterministic, cautious measurement of what happened → an optional AI interpretation → (sometimes) a new task, created through the *same* `seo_opportunities`/`seo_tasks` system every earlier phase feeds. Nothing in this phase publishes, modifies, or deletes anything — it only measures and recommends.
+
+### Critical principle: describe, don't claim causality
+
+SEO performance is affected by many factors this platform cannot see — algorithm updates, seasonality, competitor moves, other site changes. Every deterministic reasoning string and every AI interpretation uses observational language ("Position improved from 14.2 to 9.8 following publication") and the classification vocabulary is deliberately non-causal: `POSITIVE`/`NEGATIVE`/`MIXED`/`INCONCLUSIVE`/`INSUFFICIENT_DATA`, never "this change caused X". `lib/outcomes/classify.ts`'s reasoning text is unit-tested to never contain a causal phrase (`classify.test.ts`), and the AI system prompt (`lib/ai/prompts/action-outcomes.ts`) states the same rule explicitly, with a matching schema (`lib/ai/schemas.ts`'s `actionOutcomeInterpretationSchema`) that has no field for a number the model could invent or a field that could override the classification it was given.
+
+### Action tracking
+
+`seo_actions` (`lib/db/seo-actions.ts`) is created at exactly two points, never speculatively:
+
+1. **`lib/jobs/handlers/record-seo-action.ts`'s `recordSeoActionForPublication`**, called from `publish-content.ts` the moment a `content_publications` row reaches `PUBLISHED` — `action_type` comes from `lib/outcomes/action-type.ts`'s `deriveActionType()`, which prefers the originating Phase 2D/3 detector type (e.g. `COMPETITOR_CONTENT_GAP`) over the opportunity's own generic `CREATE_NEW_PAGE`/`OPTIMISE_EXISTING_PAGE` when one is known, for full traceability back to *why* the action happened.
+2. **`recordSeoActionForCompletedTask`**, called from `app/admin/actions.ts`'s `updateTaskStatusAction` when a task is marked `completed` — covers `TECHNICAL_FIX`/`IMPROVE_INTERNAL_LINKING`/etc., which never go through the content pipeline. Deliberately a no-op for content-eligible opportunity types (those are handled by path 1, with a real published URL, not a task-completion timestamp that may precede or never reach actual publication).
+
+Both paths are idempotent: a `content_publication_id` has at most one `seo_actions` row (DB-enforced, partial unique index), and a duplicate task-completion click is checked before inserting.
+
+### Baseline snapshot
+
+Captured exactly once per action, on the first `ANALYSE_ACTION_OUTCOMES` run after `executed_at`: `lib/outcomes/windows.ts`'s `pickBaselineWindowDays()` picks 28 days of pre-action history if that much exists, falls back to 7, or — below 7 days of history — captures nothing yet and retries on a later run rather than computing from a near-empty window. Stored in `seo_actions.baseline_*`, never overwritten once `baseline_captured_at` is set.
+
+### Post-action measurement
+
+`lib/outcomes/windows.ts`'s `dueMeasurementWindows()` checks all four spec-defined windows (7/14/28/56 days) against `now - executed_at`, computing (and upserting) a `seo_action_outcomes` row for every window that has actually elapsed — never before. Metrics come from real `search_console_metrics` rows (`lib/db/search-console.ts`'s `listSearchConsoleMetricsForSubjectInRange`, matched by the action's `target_url` and/or `target_keyword_text`), aggregated by `lib/outcomes/aggregate.ts` exactly like `lib/search-performance/comparison.ts` already does (impressions-weighted average position, CTR recomputed from totals — never averaged from stored per-row values).
+
+### Outcome metrics and classification
+
+`lib/outcomes/deltas.ts` computes clicks/impressions/CTR/position changes — `positionChange = baseline.position - current.position`, so **positive means improvement** (14 → 9 yields +5), matching the spec's explicit "lower position number = improvement" rule exactly. `lib/outcomes/classify.ts` first applies a deterministic minimum-data gate (`assessDataSufficiency` — below `MIN_IMPRESSIONS_FOR_COMPARISON` in either period, or in the new-page's own period, is `INSUFFICIENT_DATA`, full stop, never overridable by AI) and only then classifies: clicks/impressions/position are each independently checked against a "meaningful movement" threshold, and `POSITIVE`/`NEGATIVE` require every meaningfully-moved metric to agree — any real disagreement (clicks up, position down) is `MIXED`, never auto-`POSITIVE` from one improving number.
+
+### New-page lifecycle
+
+`lib/outcomes/lifecycle.ts` stages a `CREATE_NEW_PAGE` action's outcome as `NEW` → `DISCOVERED` → `VISIBLE` → `GROWING` → `STABLE` → `DECLINING`. `VISIBLE` only ever means "Search Console has recorded impressions for this URL" — evidence of visibility, never a claim about Google's indexing status or crawl mechanics, which this platform has no way to observe. `GROWING`/`DECLINING` compare the current measurement window against the *previous* measurement window (not the pre-action baseline), so a page that's already succeeding doesn't get relabeled "declining" just because its initial growth spurt levelled off into `STABLE`.
+
+### The Next Action Engine
+
+`lib/outcomes/recommend.ts` maps a classification onto exactly one of `MONITOR`/`INVESTIGATE_CTR`/`DIAGNOSE_DECLINE`/`WAIT_FOR_MORE_DATA` — `POSITIVE` always recommends `MONITOR` (never automatically keep changing a page that's working), `INCONCLUSIVE`/`INSUFFICIENT_DATA` always recommend `WAIT_FOR_MORE_DATA` (never modify the page), and `MIXED` recommends `INVESTIGATE_CTR` specifically when clicks rose but CTR fell — the spec's own example, verified in `recommend.test.ts`. `lib/outcomes/follow-up.ts`'s `shouldCreateFollowUpTask()` is the pure gate deciding whether that recommendation becomes a real task: only `INVESTIGATE_CTR`/`DIAGNOSE_DECLINE` ever do (`MONITOR`/`WAIT_FOR_MORE_DATA` never create one), only when the website's autonomy level allows recommendations, and only once per outcome — `seo_action_outcomes.follow_up_task_id` is the duplicate-prevention record, checked before every attempt.
+
+### Autonomy levels
+
+`websites.autonomy_level` (`MANUAL`/`AI_RECOMMENDS`[default]/`AI_PREPARES`/`AI_EXECUTES`) is schema-ready for all four, configurable per website on the Outcomes admin page. Phase 6 enforces exactly one rule regardless of level, via `lib/outcomes/autonomy.ts`'s `autonomyAllowsAutomaticContentChange()`, which **always returns `false`** — a deliberate fail-closed primitive so even a future caller that forgets to gate a content mutation on it doesn't accidentally get one. `MANUAL` additionally disables passive follow-up-task creation entirely (`autonomyAllowsRecommendations()`); every other level allows recommendations but none allow skipping human approval for an actual content change — that gate is unconditional and lives independently of the autonomy level.
+
+### Closed-loop task creation
+
+Follow-up tasks are created through the *existing* `seo_opportunities`/`seo_tasks` system (`insertOpportunity`/`insertTask`, same functions every earlier phase's promotion step uses) — never a parallel task system. `DIAGNOSE_DECLINE` maps onto the existing `INVESTIGATE_DECLINE` opportunity type, `INVESTIGATE_CTR` onto the existing `IMPROVE_CTR` type. Traceability (`ORIGINAL OPPORTUNITY → ORIGINAL TASK → ACTION → PUBLICATION → MEASUREMENT → OUTCOME → FOLLOW-UP TASK`) is carried through `seo_actions.seo_opportunity_id`/`seo_task_id` and the new opportunity's `priority_components` jsonb (`{ source: "action_outcome_followup", seo_action_id, seo_action_outcome_id, ... }`), same "signals snapshot" convention `search-performance-shared.ts` already established.
+
+### Experimental tracking foundation
+
+`seo_actions.hypothesis`/`expected_outcome`/`measurement_window_days`/`conclusion` are nullable columns, unpopulated by any default flow in this phase — laying a clean model for a future real experiment-authoring UI without building A/B testing now (explicitly out of scope per spec). No causal conclusion is ever drawn from ordinary before/after data by this phase's own code, experiment or not.
+
+### AI interpretation
+
+Runs strictly after every deterministic calculation above, same "TypeScript calculates, AI interprets" principle as Phase 2D — `lib/ai/prompts/action-outcomes.ts` + `actionOutcomeInterpretationSchema` (`lib/ai/schemas.ts`) has no field for a metric, no field that could restate or override `classification`/`recommendation`, and an explicit instruction never to claim causality or invent competitor activity. Bounded to `MAX_AI_INTERPRETATIONS_PER_RUN` (10) not-yet-interpreted outcomes per run (`lib/db/seo-action-outcomes.ts`'s `listUnanalysedOutcomesForWebsite`), same cost-control pattern as every prior AI-interpretation pass; a failed/skipped call never blocks measurement, alerting, or follow-up task creation, all of which already happened deterministically before it runs.
+
+### Alerts
+
+`lib/outcomes/alerts.ts`'s `evaluateAlertCandidates()` only ever returns a candidate when a configurable threshold is actually crossed (significant ranking/traffic decline, a strong positive result, a new page crossing an impressions-traction threshold) — ordinary movements produce nothing. Deduplicated at the DB layer via a unique index on `(seo_action_outcome_id, alert_type)`, so re-running analysis never spams the same alert twice. `NEW_HIGH_VALUE_KEYWORD` is a valid `seo_alert_type` but is **not yet evaluated** — it belongs to Phase 2D's `EMERGING_KEYWORD` detector, a different signal than an executed action's outcome, and wiring it up with an honest heuristic (rather than a shaky guess) is flagged below rather than approximated now.
+
+### `ANALYSE_ACTION_OUTCOMES`
+
+A new job type on its own independent per-website schedule (`next_action_outcomes_at`/`action_outcomes_frequency_days`, default daily — cheap to run when nothing is due, since the job is a no-op in that case) rather than chained off `SEARCH_CONSOLE_SYNC`, because a website can have `EXECUTED` actions worth re-checking on any given day regardless of whether a sync or publish just happened. `lib/jobs/handlers/analyse-action-outcomes.ts` orchestrates baseline capture → per-window measurement → alert evaluation → follow-up task creation → the bounded AI-interpretation pass, in that order, entirely asynchronously (never in a browser request). Manually triggerable via the Outcomes admin page or `POST /api/websites/<website-id>/action-outcomes-analysis`.
+
+### Dashboard
+
+`/admin/websites/[id]/outcomes` — an overview (organic clicks/impressions/average position, actions executed, positive outcomes, actions needing attention, pages improving/declining), an open-alerts table with an Acknowledge action, a per-action outcomes table (target, baseline, current, change, classification, data-sufficiency, recommendation, AI interpretation), a new-page lifecycle table, and the website's autonomy-level control — all read-only server components + plain server actions, consistent with every other admin page; no redesign.
+
+### Security
+
+Every new route (`/api/websites/[id]/action-outcomes-analysis`) is covered automatically by `proxy.ts`'s existing path-prefix Basic Auth (no route-specific change needed — verified, not assumed). All three new tables carry `organization_id` and RLS via the same `is_org_member()` policy as every other tenant table. Every DB read/write in `lib/db/seo-actions.ts`/`seo-action-outcomes.ts`/`seo-alerts.ts` is scoped by a server-derived `website_id`, never a client-supplied one. Every measured metric comes from stored `search_console_metrics` rows — nothing in the browser can influence a classification or a metric value.
+
+### Testing
+
+`lib/outcomes/*.test.ts` — 62 tests covering baseline-window selection, measurement-window due-checks, metric aggregation, position-improvement direction (14→9 positive, 9→14 negative), CTR-decline-while-clicks-rise (the MIXED case), insufficient-data gating, mixed/positive/negative/inconclusive classification, new-page lifecycle transitions, action-type traceability derivation, autonomy-level enforcement, and duplicate-follow-up-task prevention. Synthetic fixtures only — no live Search Console/AI calls, same convention as every existing test file.
+
+### Testing the loop end-to-end
+
+Requires at least one `PUBLISHED` content version (Phase 5) or a `completed` non-content task, and some Search Console history (Phase 2C). Via the admin UI: open a website's Outcomes page (`/admin/websites/[id]/outcomes`) and click **Run outcome analysis**. Via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/websites/<website-id>/action-outcomes-analysis -u admin:$ADMIN_PASSWORD
+```
+
+Re-run it twice to confirm no duplicate `seo_action_outcomes` rows, no duplicate alerts, and no duplicate follow-up tasks.
+
+## What remains for Phase 7+
 
 - **Webflow, Shopify, and other `PublishingProvider` implementations** — the interface was designed for this from day one; WordPress is the first, not the only, implementation.
-- **Closing the loop with Search Console** — `content_publications.published_at`/`target_url` are stored precisely so a future phase can join them against real GSC performance for that URL; the measurement/optimisation loop itself isn't built yet.
 - **SEO-plugin integration** (Yoast/RankMath meta fields) — deliberately not implemented in Phase 5 (see "Metadata mapping" above); would need its own verified integration, not an assumption about which plugin a client runs.
 - **Featured image/categories/tags** for publishing, once Phase 4's content system actually produces image/taxonomy data to map.
 - A real `CvCentralContentProvider` (or equivalent) once an actual content-writing system/API becomes reachable — `AiContentProvider` is a deliberate placeholder behind the same interface, not a permanent choice.
@@ -585,6 +682,11 @@ curl -X POST http://localhost:3000/api/content-versions/<version-id>/publish -u 
 - AI enrichment of `UNKNOWN`/`OTHER`-classified competitor domains (the deterministic classifier is intentionally conservative — see "Competitor identification" above).
 - **A detector coverage gap found during live testing (CV Central, Phase 3)**: when the client has a page that already lexically matches a keyword, but the client doesn't rank for it *at all* (not just poorly) while `DIRECT_COMPETITOR`s do, neither `COMPETITOR_CONTENT_GAP` (skips — a matching page exists) nor `COMPETITOR_RANKING_GAP` (skips — requires the client to already hold *some* position to compare against) fires. Closing this needs a variant detector keyed off "never ranked despite adequate content" rather than "no content" or "ranks worse" — closer in spirit to `MISSING_PAGE`/`DECLINING_KEYWORD` from Phase 2D. Not built yet.
 - A `raw_response`/SERP-payload retention/cleanup job (currently kept indefinitely, flagged as a follow-up).
+- **Real A/B testing / experimentation**, building on Phase 6's `hypothesis`/`expected_outcome`/`measurement_window_days`/`conclusion` foundation — deliberately not built in Phase 6.
+- **`NEW_HIGH_VALUE_KEYWORD` alerts**, wiring Phase 2D's `EMERGING_KEYWORD` detector into `lib/outcomes/alerts.ts` rather than approximating it from action-outcome deltas alone.
+- **Competitor context in AI outcome interpretation** — `lib/ai/prompts/action-outcomes.ts`'s `competitorContext` field exists in the schema but is always sent empty in Phase 6 (no live SERP call is made for this pass, per the cost-control principle); populating it from cached `competitor_domains` data is a natural next step.
+- **`AI_PREPARES`/`AI_EXECUTES` autonomy levels actually doing more than `AI_RECOMMENDS`** — the enum and the per-website setting exist (Phase 6), but no code path currently grants them additional capability; `lib/outcomes/autonomy.ts`'s `autonomyAllowsAutomaticContentChange()` always returns `false` today, by design.
+- **Per-subject baseline history** — Phase 6's baseline-window selection uses the website's *overall* earliest Search Console date (matching Phase 2D's own `pickComparisonWindowDays` convention) rather than a per-keyword/per-URL earliest date, which would be more precise but costs an extra query per action; flagged as a possible refinement, not blocking.
 - Backlink intelligence, ranking history trends/alerts beyond the current comparison windows, deeper competitor content analysis (topic clustering).
 - A richer, more collaborative content editor (inline editing, real diffing between versions) — Phase 4 deliberately kept the review UI to read/compare/approve/reject/request-revision, per spec.
 - Backlink campaigns, autonomous outreach, client-facing reports, billing, full client-authentication redesign — all explicitly out of scope so far.

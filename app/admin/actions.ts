@@ -20,7 +20,9 @@ import { getOrCreatePublicationForVersion } from "@/lib/db/content-publications"
 import { recordPublicationAuditEvent } from "@/lib/db/publication-audit";
 import { createPublishingProvider } from "@/lib/publishing/get-provider";
 import { isContentApprovedForPublication } from "@/lib/publishing/eligibility";
-import type { TaskStatus, OpportunityStatus } from "@/lib/supabase/types";
+import { recordSeoActionForCompletedTask } from "@/lib/jobs/handlers/record-seo-action";
+import { acknowledgeAlert } from "@/lib/db/seo-alerts";
+import type { TaskStatus, OpportunityStatus, AutonomyLevel } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
   const name = String(formData.get("name") ?? "").trim();
@@ -66,6 +68,7 @@ async function triggerAndReturn(
     | "SEARCH_CONSOLE_SYNC"
     | "ANALYSE_SEARCH_PERFORMANCE"
     | "FETCH_SERP_RESULTS"
+    | "ANALYSE_ACTION_OUTCOMES"
 ) {
   const website = await getWebsite(websiteId);
   const organizationId = assertWebsiteBelongsToOrganization(website, organizationIdHint, websiteId);
@@ -81,6 +84,7 @@ async function triggerAndReturn(
   revalidatePath(`/admin/websites/${websiteId}/search-console`);
   revalidatePath(`/admin/websites/${websiteId}/search-performance`);
   revalidatePath(`/admin/websites/${websiteId}/competitors`);
+  revalidatePath(`/admin/websites/${websiteId}/outcomes`);
 }
 
 export async function triggerCrawlAction(formData: FormData): Promise<void> {
@@ -130,6 +134,29 @@ export async function triggerSerpFetchAction(formData: FormData): Promise<void> 
   const organizationId = String(formData.get("organization_id"));
   await triggerAndReturn(websiteId, organizationId, "FETCH_SERP_RESULTS");
   redirect(`/admin/websites/${websiteId}/competitors`);
+}
+
+export async function triggerActionOutcomesAnalysisAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  await triggerAndReturn(websiteId, organizationId, "ANALYSE_ACTION_OUTCOMES");
+  redirect(`/admin/websites/${websiteId}/outcomes`);
+}
+
+export async function updateAutonomyLevelAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const autonomyLevel = String(formData.get("autonomy_level")) as AutonomyLevel;
+  await updateWebsite(websiteId, { autonomy_level: autonomyLevel });
+  revalidatePath(`/admin/websites/${websiteId}/outcomes`);
+  redirect(`/admin/websites/${websiteId}/outcomes`);
+}
+
+export async function acknowledgeAlertAction(formData: FormData): Promise<void> {
+  const alertId = String(formData.get("alert_id"));
+  const websiteId = String(formData.get("website_id"));
+  await acknowledgeAlert(alertId);
+  revalidatePath(`/admin/websites/${websiteId}/outcomes`);
+  redirect(`/admin/websites/${websiteId}/outcomes`);
 }
 
 /** Sets the free-text SERP location used for this website's future SERP
@@ -194,6 +221,18 @@ export async function updateTaskStatusAction(formData: FormData): Promise<void> 
   const websiteId = String(formData.get("website_id"));
   const status = String(formData.get("status")) as TaskStatus;
   await updateTaskStatus(taskId, status);
+  // Phase 6: a task completing is the "action executed" moment for actions
+  // that never go through the content pipeline (TECHNICAL_FIX,
+  // IMPROVE_INTERNAL_LINKING, ...) — see
+  // lib/jobs/handlers/record-seo-action.ts's recordSeoActionForCompletedTask
+  // for why content-eligible tasks are deliberately skipped here. Soft-
+  // failed: bookkeeping for future measurement must never block marking a
+  // task done.
+  if (status === "completed") {
+    await recordSeoActionForCompletedTask(taskId).catch((error) => {
+      console.warn(`[admin] failed to record seo_action for completed task ${taskId}, continuing:`, error);
+    });
+  }
   redirect(`/admin/websites/${websiteId}`);
 }
 
