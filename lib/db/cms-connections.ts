@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import type { Database, GithubPublicationMode } from "@/lib/supabase/types";
+import type { Database, GithubContentAdapter, GithubPublicationMode } from "@/lib/supabase/types";
 
 type CmsConnectionRow = Database["public"]["Tables"]["cms_connections"]["Row"];
 
@@ -150,13 +150,18 @@ export interface SelectGitHubRepositoryInput {
   productionBranch: string;
   publicationMode: GithubPublicationMode;
   accountLogin: string;
+  /** Which WebsiteContentAdapter this connection uses (migration 0025) —
+   * defaults to the generic 'configurable_markdown' adapter; 'cvcentral' is
+   * the real adapter built from inspecting rhmatiqur-commits/cvcentral. */
+  contentAdapter: GithubContentAdapter;
 }
 
-/** Step 2: the admin's repository/branch/mode choice, from a live-listed set
- * (never a manually-typed URL — spec: "do not require the user to manually
- * enter a repository URL if the GitHub API can provide it"). Moves the
- * connection to 'pending' — same as WordPress's initial state — requiring
- * an explicit Test Connection click before it's trusted as 'active'. */
+/** Step 2: the admin's repository/branch/mode/adapter choice, from a
+ * live-listed set (never a manually-typed URL — spec: "do not require the
+ * user to manually enter a repository URL if the GitHub API can provide
+ * it"). Moves the connection to 'pending' — same as WordPress's initial
+ * state — requiring an explicit Test Connection click before it's trusted
+ * as 'active'. */
 export async function selectGitHubRepository(input: SelectGitHubRepositoryInput): Promise<CmsConnectionRow> {
   const db = supabaseAdmin();
   const { data, error } = await db
@@ -167,6 +172,7 @@ export async function selectGitHubRepository(input: SelectGitHubRepositoryInput)
       github_production_branch: input.productionBranch,
       github_publication_mode: input.publicationMode,
       github_account_login: input.accountLogin,
+      content_adapter: input.contentAdapter,
       status: "pending",
       last_test_error: null,
     })

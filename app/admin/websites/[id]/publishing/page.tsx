@@ -7,11 +7,12 @@ import { toPublicConnection } from "@/lib/publishing/connection-view";
 import { GitHubClient, type GitHubRepoSummary } from "@/lib/publishing/github/client";
 import { PersonalAccessTokenAuth } from "@/lib/publishing/github/auth";
 import { connectCmsAction, testCmsConnectionAction, connectGitHubTokenAction, selectGitHubRepositoryAction } from "@/app/admin/actions";
-import type { GithubPublicationMode } from "@/lib/supabase/types";
+import type { GithubPublicationMode, GithubContentAdapter } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
 
 const PUBLICATION_MODES: GithubPublicationMode[] = ["GITHUB_PULL_REQUEST", "GITHUB_BRANCH_ONLY", "GITHUB_MERGE"];
+const CONTENT_ADAPTERS: GithubContentAdapter[] = ["configurable_markdown", "cvcentral"];
 
 function fmt(date: string | null): string {
   return date ? new Date(date).toLocaleString() : "-";
@@ -228,7 +229,8 @@ async function GitHubConnectionSection({
               <span className="muted">No repository selected</span>
             )}{" "}
             &middot; production branch: <strong>{connection.githubProductionBranch ?? "-"}</strong> &middot; mode:{" "}
-            <strong>{connection.githubPublicationMode}</strong> &middot; <span className={`badge ${connection.status}`}>{connection.status}</span>
+            <strong>{connection.githubPublicationMode}</strong> &middot; content adapter: <strong>{connection.contentAdapter}</strong> &middot;{" "}
+            <span className={`badge ${connection.status}`}>{connection.status}</span>
           </p>
           {connection.githubAccountLogin && <p className="muted">Connected as GitHub user/org: {connection.githubAccountLogin}</p>}
           <p className="muted">
@@ -331,6 +333,17 @@ async function RepoPicker({ websiteId, credentialSecretId }: { websiteId: string
               ))}
             </select>
           </label>
+          <label>
+            Content adapter
+            <br />
+            <select name="content_adapter" defaultValue="configurable_markdown">
+              {CONTENT_ADAPTERS.map((adapter) => (
+                <option key={adapter} value={adapter}>
+                  {adapter}
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="btn" type="submit" style={{ alignSelf: "flex-end" }}>
             Connect this repository
           </button>
@@ -339,6 +352,12 @@ async function RepoPicker({ websiteId, credentialSecretId }: { websiteId: string
       <p className="muted" style={{ marginTop: "8px" }}>
         Default and safest: <code>GITHUB_PULL_REQUEST</code> — every change opens a pull request for review; nothing merges to
         production automatically. See the repository list above for each repo&apos;s own default branch.
+      </p>
+      <p className="muted">
+        Content adapter decides how a page is generated/patched for this specific repository&apos;s structure —{" "}
+        <code>configurable_markdown</code> is a generic Markdown+frontmatter adapter (works for most static-site setups);{" "}
+        <code>cvcentral</code> is built specifically for the real rhmatiqur-commits/cvcentral repository (static HTML blog
+        posts, no build step). Pick <code>cvcentral</code> only when connecting that exact repository.
       </p>
     </div>
   );

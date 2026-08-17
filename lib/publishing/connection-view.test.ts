@@ -12,6 +12,7 @@ const EXPECTED_KEYS = [
   "githubProductionBranch",
   "githubAccountLogin",
   "githubPublicationMode",
+  "contentAdapter",
   "status",
   "lastTestedAt",
   "lastTestError",
@@ -34,6 +35,7 @@ test("toPublicConnection never includes credential_secret_id or any other field 
     github_production_branch: null,
     github_account_login: null,
     github_publication_mode: "GITHUB_PULL_REQUEST",
+    content_adapter: "configurable_markdown",
     credential_secret_id: "11111111-1111-1111-1111-111111111111",
     status: "active",
     last_tested_at: "2026-08-16T00:00:00Z",
@@ -61,6 +63,7 @@ test("toPublicConnection preserves the non-sensitive WordPress fields correctly"
     github_production_branch: null,
     github_account_login: null,
     github_publication_mode: "GITHUB_PULL_REQUEST",
+    content_adapter: "configurable_markdown",
     status: "active",
     last_tested_at: null,
     last_test_error: null,
@@ -81,6 +84,7 @@ test("toPublicConnection preserves the non-sensitive GitHub fields, never the to
     github_production_branch: "main",
     github_account_login: "seo-bot-app",
     github_publication_mode: "GITHUB_PULL_REQUEST",
+    content_adapter: "cvcentral",
     credential_secret_id: "22222222-2222-2222-2222-222222222222",
     status: "active",
     last_tested_at: "2026-08-17T00:00:00Z",
@@ -95,6 +99,7 @@ test("toPublicConnection preserves the non-sensitive GitHub fields, never the to
   assert.equal(view.githubProductionBranch, "main");
   assert.equal(view.githubAccountLogin, "seo-bot-app");
   assert.equal(view.githubPublicationMode, "GITHUB_PULL_REQUEST");
+  assert.equal(view.contentAdapter, "cvcentral");
   assert.equal(JSON.stringify(view).includes("credential_secret_id"), false);
   assert.equal(JSON.stringify(view).includes(row.credential_secret_id), false);
 });

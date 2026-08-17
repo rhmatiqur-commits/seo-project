@@ -7,8 +7,8 @@
  * deliberately never a field on CmsConnectionPublicView — there is no path
  * through this function that can leak it, by construction, not by care.
  * The same is true of the raw GitHub token: only github_owner/repo/branch/
- * account_login (all non-sensitive, display-only identifiers) ever appear
- * here, never the decrypted credential itself.
+ * account_login/content_adapter (all non-sensitive, display-only
+ * identifiers) ever appear here, never the decrypted credential itself.
  */
 
 export interface CmsConnectionRowLike {
@@ -21,6 +21,7 @@ export interface CmsConnectionRowLike {
   github_production_branch: string | null;
   github_account_login: string | null;
   github_publication_mode: string;
+  content_adapter: string;
   status: string;
   last_tested_at: string | null;
   last_test_error: string | null;
@@ -36,6 +37,7 @@ export interface CmsConnectionPublicView {
   githubProductionBranch: string | null;
   githubAccountLogin: string | null;
   githubPublicationMode: string;
+  contentAdapter: string;
   status: string;
   lastTestedAt: string | null;
   lastTestError: string | null;
@@ -52,6 +54,7 @@ export function toPublicConnection(row: CmsConnectionRowLike): CmsConnectionPubl
     githubProductionBranch: row.github_production_branch,
     githubAccountLogin: row.github_account_login,
     githubPublicationMode: row.github_publication_mode,
+    contentAdapter: row.content_adapter,
     status: row.status,
     lastTestedAt: row.last_tested_at,
     lastTestError: row.last_test_error,

@@ -147,7 +147,7 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 
 ## Database schema
 
-37 tables (3 gained new columns in Phase 6A: `cms_connections`, `content_publications`), UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0024_github_publishing_columns.sql`) for the full source of truth.
+37 tables (2 gained new columns in Phase 6A: `cms_connections`, `content_publications`), UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0025_github_content_adapter.sql`) for the full source of truth.
 
 - **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
 - **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and five **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below), and `next_action_outcomes_at`/`action_outcomes_frequency_days` (default 1 — daily, Phase 6; cheap to run daily since the job is a no-op when nothing is due). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all five; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below); `ANALYSE_ACTION_OUTCOMES` (Phase 6) deliberately does *not* chain the same way — see its own section. `business_description`/`target_audience`/`brand_voice`/`content_constraints` (Phase 4) — nullable, admin-editable business facts the content brief reads; never auto-filled, a null value is surfaced to both the human reviewer and the QA factuality check instead. `autonomy_level` (Phase 6, default `AI_RECOMMENDS`) — see "Autonomy levels" below.
@@ -722,7 +722,7 @@ A GitHub-flavoured error taxonomy backs this: `lib/publishing/github/errors.ts`'
 
 ### The content adapter
 
-The critical boundary the spec calls out by name — `GitHubPublishingProvider` never assumes "create `article.md`" or "create `page.tsx`"; different code-based sites represent content completely differently.
+The critical boundary the spec calls out by name — `GitHubPublishingProvider` never assumes "create `article.md`" or "create `page.tsx`"; different code-based sites represent content completely differently. Which adapter a connection uses is a **configuration choice** (`cms_connections.content_adapter`, migration 0025), picked by the admin when connecting a repository — never hard-coded by owner/repo inside the provider.
 
 ```
 GitHubPublishingProvider
@@ -730,21 +730,30 @@ GitHubPublishingProvider
         v
 WebsiteContentAdapter  (lib/publishing/github/content-adapter.ts)
         |
-        v
-ConfigurableMarkdownContentAdapter  (lib/publishing/github/markdown-adapter.ts) -- the only implementation today
+        +--> ConfigurableMarkdownContentAdapter  (lib/publishing/github/markdown-adapter.ts) -- generic default
+        |
+        +--> CvCentralContentAdapter  (lib/publishing/github/cvcentral-adapter.ts) -- the real CV Central site
 ```
 
-`filePathsToRead()`/`planFileChanges()`/`validateFileChange()` — the middle function is pure (no GitHub calls; the provider does the reading via `GitHubClient.getFileContent` and hands the results in), so file-change planning is fully unit-testable without a repository. `planFileChanges` refuses (`ContentAdapterError`, a permanent failure) to create a new page at a path that already has content, and refuses to "optimise" a page whose file it can't find — "do not overwrite unrelated changes" enforced structurally, not by convention. For `OPTIMISE_EXISTING_PAGE`, `lib/publishing/github/frontmatter.ts`'s `patchFrontmatterFields` replaces only the frontmatter fields the adapter has a schema for (title/description/slug), preserving every other field and its order untouched, and replaces the body wholesale — "generate a patch rather than blindly replacing unrelated code," applied to the one dimension a generic, site-blind adapter can safely reason about.
+`filePathsToRead()`/`planFileChanges()`/`validateFileChange()` — the middle function is pure (no GitHub calls; the provider does the reading via `GitHubClient.getFileContent` and hands the results in), so file-change planning is fully unit-testable without a repository.
 
-**What a real CV Central adapter still needs, once the repository is reachable** (none of this is guessed or hard-coded anywhere in `lib/publishing/github/*`):
-- Framework (Next.js? Astro? Gatsby? plain static?) and its routing convention (file-based routes, a CMS-driven route table, something else).
-- Where content actually lives (a `content/` directory of Markdown/MDX? React components with inline copy? a headless CMS the repo just reads from at build time — in which case this whole approach would need rethinking, since there'd be no file to commit).
-- The real frontmatter/metadata schema (field names, required fields, date/author conventions).
-- How internal links are represented (relative paths? a link-resolution component? absolute URLs?).
-- Whether a sitemap/route manifest needs updating alongside a new page, and how.
-- Image handling (not implemented at all in this phase — same honest gap as Phase 5's WordPress featured-image/taxonomy limitation).
+**`CvCentralContentAdapter`** — built by directly, read-only inspecting `github.com/rhmatiqur-commits/cvcentral` (no changes made to that repository). Confirmed findings that shape it:
 
-Until then, `ConfigurableMarkdownContentAdapter`'s config (`contentDirectory`/`fileExtension`/`routeStrategy`/`frontmatterFields`) is the exact contract a real integration fills in — see `lib/publishing/github/markdown-adapter.ts`'s own doc comments.
+- **No framework, no build step.** Every page is a hand-authored, fully self-contained static `.html` file, deployed as-is by Vercel — `package.json` has no SSG dependency at all.
+- **Two structurally different page families**: blog posts (`blog/*.html` — rich metadata: canonical/OG/Twitter/`schema.org/Article` JSON-LD) and tool/app pages (root `*.html` — sparser metadata, external stylesheets, app-like body). Only blog posts have a consistent, splice-able shape.
+- **Nav and footer are duplicated inline in every single file** — no shared partial/include/templating system of any kind. This is why the adapter *clones a real, currently-published post* (`templatePostPath`, configurable) for a new page rather than generating a full document from scratch — every byte outside the identified splice regions (nav, footer, the post's own `<style>` block, the theme-toggle script) is copied verbatim, never reinvented.
+- **URLs include the `.html` extension** (confirmed via a real post's own canonical tag) — no clean-URL rewrite is configured.
+- **A new post is only internally discoverable if `blog/index.html` also gains a matching `<a class="post-card">` entry** — creating the post file alone produces an orphan page. `CREATE_NEW_PAGE` is therefore always a two-file change: the new post + an updated `blog/index.html` (new card inserted at the top, newest-first).
+- **Zero `<img>` tags found in any of the 6 blog posts inspected** — article bodies are text-only, so image handling isn't exercised by the adapter (not implemented, same honest gap as Phase 5's WordPress featured-image limitation).
+- **Neither `sitemap.xml` nor `robots.txt` exists in the repository** — flagged, not fixed by this adapter.
+- Two pre-existing, unrelated issues observed (not touched): `blog/index.html` links to two posts that don't exist in the repo (`...your-niche-keyword-2026.html`, `...content-marketing-2026.html` — likely leftover template cards), and three homepage variants are committed (`index.html`/`index-full.html`/`index-legacy.html`).
+
+Splicing is done via small, individually-tested, anchor-based string replacements — `<title>`, `<meta name="description">`, `og:title`/`og:description`/`og:url`, `<link rel="canonical">`, the JSON-LD block (parsed/patched/re-serialized as real JSON, not regex-on-JSON), `h1.article-title`, the breadcrumb's title segment, `.article-meta` (author/date/read-time), and `.article-body` — never a full-document regeneration or a general HTML parser dependency. Body content reuses `lib/publishing/markdown.ts`'s existing `markdownToHtml()` unchanged (its `h2`/`h3`/`p`/`ol`/`li` output already matches the real posts' structure exactly). `OPTIMISE_EXISTING_PAGE`:
+- Is refused (`ContentAdapterError`) for anything outside `blog/*.html` — tool pages are out of scope for automated patching in this phase, per instruction, rather than guessed at.
+- Never touches canonical/`og:url` (a page's URL never changes on update, same rule `lib/publishing/url.ts` already enforces for WordPress) or the original `datePublished`/publish-date span — only the read-time estimate, title, description, and body are refreshed.
+- Best-effort patches the post's own card in `blog/index.html` if one is found there; never fails the whole change if it isn't (the new-page card, by contrast, is a hard requirement — a brand-new page must never ship as an orphan).
+
+`ConfigurableMarkdownContentAdapter` remains the default for any other GitHub-connected site (config: `contentDirectory`/`fileExtension`/`routeStrategy`/`frontmatterFields` — see `lib/publishing/github/markdown-adapter.ts`'s own doc comments) — CV Central is the first, not the only, real integration this architecture supports.
 
 ### GitHub authentication
 
@@ -752,7 +761,7 @@ A repository-scoped Personal Access Token (`lib/publishing/github/auth.ts`'s `Pe
 
 ### Connection setup
 
-Extends the *same* `cms_connections` table (`provider` enum gained `'github'`; `base_url`/`username` made nullable — WordPress-only concepts). Two-step flow, mirroring Search Console's own `pending_site_selection` pattern exactly: **1)** save the token (`connectGitHubTokenAction` → `pending_repo_selection`), **2)** the Publishing admin page's `RepoPicker` lists accessible repositories *live* from the GitHub API during render (never a manually-typed URL, per spec) and the admin picks one + production branch + publication mode (`selectGitHubRepositoryAction` → `pending`), **3)** an explicit **Test Connection** click (reusing `testCmsConnectionAction`, now provider-aware via `lib/publishing/get-provider.ts`'s `buildPublishingConnectionConfig`) moves it to `active`. The token is decrypted server-side only — inside the `RepoPicker` server component during render, never sent to the browser, never logged.
+Extends the *same* `cms_connections` table (`provider` enum gained `'github'`; `base_url`/`username` made nullable — WordPress-only concepts). Two-step flow, mirroring Search Console's own `pending_site_selection` pattern exactly: **1)** save the token (`connectGitHubTokenAction` → `pending_repo_selection`), **2)** the Publishing admin page's `RepoPicker` lists accessible repositories *live* from the GitHub API during render (never a manually-typed URL, per spec) and the admin picks one + production branch + publication mode + **content adapter** (`selectGitHubRepositoryAction` → `pending`), **3)** an explicit **Test Connection** click (reusing `testCmsConnectionAction`, now provider-aware via `lib/publishing/get-provider.ts`'s `buildPublishingConnectionConfig`) moves it to `active`. The token is decrypted server-side only — inside the `RepoPicker` server component during render, never sent to the browser, never logged.
 
 ### `MERGE_TO_PRODUCTION`
 
@@ -764,7 +773,7 @@ Every new route/action re-derives `organization_id`/`website_id` from the resour
 
 ### Testing
 
-`lib/publishing/github/*.test.ts` — 90 tests: `errors.test.ts` (GitHub's actual status-code behaviour, including the 403-overload and the 422/405 "already exists"/"not mergeable" cases), `client.test.ts` (mocked `fetch`, mirroring `wordpress-provider.test.ts`'s style — auth header construction, base64 encode/decode round-trips, 404→null patterns, rate-limit header detection, Vercel-preview detection from both Statuses and Checks APIs, and that a network failure never leaks the token), `retry-strategy.test.ts` (every branch/PR/merge idempotency decision), `frontmatter.test.ts` and `markdown-adapter.test.ts` (parsing/serialization round-trips, patch-preserves-unrelated-fields, collision/missing-file refusals, path-traversal/validation checks). No live GitHub or Vercel calls anywhere.
+`lib/publishing/github/*.test.ts` — 105 tests: `errors.test.ts` (GitHub's actual status-code behaviour, including the 403-overload and the 422/405 "already exists"/"not mergeable" cases), `client.test.ts` (mocked `fetch`, mirroring `wordpress-provider.test.ts`'s style — auth header construction, base64 encode/decode round-trips, 404→null patterns, rate-limit header detection, Vercel-preview detection from both Statuses and Checks APIs, and that a network failure never leaks the token), `retry-strategy.test.ts` (every branch/PR/merge idempotency decision), `frontmatter.test.ts` and `markdown-adapter.test.ts` (parsing/serialization round-trips, patch-preserves-unrelated-fields, collision/missing-file refusals, path-traversal/validation checks), and `cvcentral-adapter.test.ts` (splice correctness against structurally-faithful fixtures, JSON-LD round-trip, canonical/publish-date preservation on optimise, orphan-page prevention, tool-page refusal, missing-template/missing-index refusals). No live GitHub or Vercel calls anywhere.
 
 ### Testing the pipeline
 
@@ -776,7 +785,8 @@ curl -X POST http://localhost:3000/api/content-versions/<version-id>/merge-to-pr
 
 ## What remains for Phase 7+
 
-- **A real CV Central content adapter** — see "The content adapter" above for the exact configuration/repository access still needed; `ConfigurableMarkdownContentAdapter` is a deliberate, honestly-scoped placeholder, not a permanent choice.
+- **`CvCentralContentAdapter` tool-page support** — `OPTIMISE_EXISTING_PAGE` is deliberately scoped to `blog/*.html` only for now; tool/app pages (`cv-builder.html` etc.) have a materially different, sparser structure and are refused rather than guessed at — see "The content adapter" above.
+- **A real sitemap for CV Central** — the repository has neither `sitemap.xml` nor `robots.txt` today; not something this adapter invents or fixes.
 - **`GITHUB_MERGE` mode's actual auto-merge behavior** — the config value exists and is accepted, but `MERGE_TO_PRODUCTION` is always a separate explicit action in this phase regardless of mode (see "Publication modes" above).
 - **A GitHub App implementation** — `GitHubAppAuth` is a typed, documented placeholder behind `GitHubAuthStrategy`; a Personal Access Token is what's actually used today.
 - **A `VercelDeploymentProvider`** if GitHub's own Statuses/Checks-based preview detection (`getDeploymentSignal`) ever proves insufficient — `cms_connections.vercel_project_id` is schema-ready but unused.

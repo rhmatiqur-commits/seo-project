@@ -2,12 +2,31 @@ import { WordPressPublishingProvider } from "@/lib/publishing/wordpress-provider
 import { GitHubPublishingProvider } from "@/lib/publishing/github/provider";
 import { PersonalAccessTokenAuth } from "@/lib/publishing/github/auth";
 import { ConfigurableMarkdownContentAdapter } from "@/lib/publishing/github/markdown-adapter";
+import { CvCentralContentAdapter } from "@/lib/publishing/github/cvcentral-adapter";
+import type { WebsiteContentAdapter } from "@/lib/publishing/github/content-adapter";
 import type { PublishingProvider } from "@/lib/publishing/provider";
-import type { CmsProvider, GithubPublicationMode } from "@/lib/supabase/types";
+import type { CmsProvider, GithubContentAdapter, GithubPublicationMode } from "@/lib/supabase/types";
 
 export type PublishingConnectionConfig =
   | { provider: "wordpress"; baseUrl: string; username: string; applicationPassword: string }
-  | { provider: "github"; owner: string; repo: string; productionBranch: string; publicationMode: GithubPublicationMode; token: string };
+  | { provider: "github"; owner: string; repo: string; productionBranch: string; publicationMode: GithubPublicationMode; contentAdapterKind: GithubContentAdapter; token: string };
+
+/**
+ * Which WebsiteContentAdapter a GitHub connection uses is a *configuration*
+ * choice (cms_connections.content_adapter, migration 0025), not something
+ * GitHubPublishingProvider or this factory hard-codes by owner/repo —
+ * "no CV-Central-specific file paths in the generic GitHub provider" stays
+ * true even though a real, non-generic CV Central adapter now exists.
+ */
+function createContentAdapter(kind: GithubContentAdapter): WebsiteContentAdapter {
+  switch (kind) {
+    case "cvcentral":
+      return new CvCentralContentAdapter();
+    case "configurable_markdown":
+    default:
+      return new ConfigurableMarkdownContentAdapter();
+  }
+}
 
 /**
  * Per-call factory, not a process-wide singleton like lib/ai/get-provider.ts
@@ -32,12 +51,7 @@ export function createPublishingProvider(config: PublishingConnectionConfig): Pu
         repo: config.repo,
         productionBranch: config.productionBranch,
         publicationMode: config.publicationMode,
-        // The only WebsiteContentAdapter implementation today — see
-        // lib/publishing/github/markdown-adapter.ts's own doc comment for
-        // why (CV Central's real repository structure isn't reachable from
-        // this environment). Swapping in a real per-site adapter later is a
-        // config/factory change here, not a GitHubPublishingProvider change.
-        contentAdapter: new ConfigurableMarkdownContentAdapter(),
+        contentAdapter: createContentAdapter(config.contentAdapterKind),
       });
     case "wordpress":
     default:
@@ -55,6 +69,7 @@ export interface CmsConnectionForProviderConfig {
   github_repo: string | null;
   github_production_branch: string | null;
   github_publication_mode: GithubPublicationMode;
+  content_adapter: GithubContentAdapter;
 }
 
 /**
@@ -62,10 +77,10 @@ export interface CmsConnectionForProviderConfig {
  * PublishingConnectionConfig union member — the one place this branching
  * logic lives, reused by every call site that needs a provider instance
  * (lib/jobs/handlers/publishing-shared.ts, app/admin/actions.ts's
- * testCmsConnectionAction/listGitHubRepositoriesAction) so it can't drift
- * between them. Throws a clear, permanent-shaped error if a connection is
- * missing the fields its own provider requires (e.g. a GitHub connection
- * that never finished repository selection) — never silently guesses.
+ * testCmsConnectionAction) so it can't drift between them. Throws a clear,
+ * permanent-shaped error if a connection is missing the fields its own
+ * provider requires (e.g. a GitHub connection that never finished
+ * repository selection) — never silently guesses.
  */
 export function buildPublishingConnectionConfig(connection: CmsConnectionForProviderConfig, decryptedSecret: string): PublishingConnectionConfig {
   if (connection.provider === "github") {
@@ -78,6 +93,7 @@ export function buildPublishingConnectionConfig(connection: CmsConnectionForProv
       repo: connection.github_repo,
       productionBranch: connection.github_production_branch,
       publicationMode: connection.github_publication_mode,
+      contentAdapterKind: connection.content_adapter,
       token: decryptedSecret,
     };
   }

@@ -1,5 +1,5 @@
 // Generated via the Supabase MCP `generate_typescript_types` tool against the
-// live schema (supabase/migrations/0001-0024). Regenerate after any migration
+// live schema (supabase/migrations/0001-0025). Regenerate after any migration
 // change and reconcile with the Tables section rather than hand-editing generated shapes.
 
 ﻿export type Json =
@@ -96,6 +96,7 @@ export type Database = {
       cms_connections: {
         Row: {
           base_url: string | null
+          content_adapter: Database["public"]["Enums"]["github_content_adapter"]
           created_at: string
           credential_secret_id: string
           github_account_login: string | null
@@ -116,6 +117,7 @@ export type Database = {
         }
         Insert: {
           base_url?: string | null
+          content_adapter?: Database["public"]["Enums"]["github_content_adapter"]
           created_at?: string
           credential_secret_id: string
           github_account_login?: string | null
@@ -136,6 +138,7 @@ export type Database = {
         }
         Update: {
           base_url?: string | null
+          content_adapter?: Database["public"]["Enums"]["github_content_adapter"]
           created_at?: string
           credential_secret_id?: string
           github_account_login?: string | null
@@ -2551,6 +2554,7 @@ export type Database = {
         | "APPROVED"
         | "REJECTED"
       content_qa_status: "PENDING" | "PASSED" | "FAILED"
+      github_content_adapter: "configurable_markdown" | "cvcentral"
       github_publication_mode:
         | "GITHUB_BRANCH_ONLY"
         | "GITHUB_PULL_REQUEST"
@@ -2831,6 +2835,7 @@ export const Constants = {
         "REJECTED",
       ],
       content_qa_status: ["PENDING", "PASSED", "FAILED"],
+      github_content_adapter: ["configurable_markdown", "cvcentral"],
       github_publication_mode: [
         "GITHUB_BRANCH_ONLY",
         "GITHUB_PULL_REQUEST",
@@ -2992,6 +2997,7 @@ export type ContentQaStatus = Database["public"]["Enums"]["content_qa_status"];
 export type CmsProvider = Database["public"]["Enums"]["cms_provider"];
 export type CmsConnectionStatus = Database["public"]["Enums"]["cms_connection_status"];
 export type GithubPublicationMode = Database["public"]["Enums"]["github_publication_mode"];
+export type GithubContentAdapter = Database["public"]["Enums"]["github_content_adapter"];
 export type PublicationStatus = Database["public"]["Enums"]["publication_status"];
 // Phase 6: Autonomous SEO Optimisation Loop.
 export type SeoActionType = Database["public"]["Enums"]["seo_action_type"];

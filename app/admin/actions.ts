@@ -22,7 +22,7 @@ import { createPublishingProvider, buildPublishingConnectionConfig } from "@/lib
 import { isContentApprovedForPublication } from "@/lib/publishing/eligibility";
 import { recordSeoActionForCompletedTask } from "@/lib/jobs/handlers/record-seo-action";
 import { acknowledgeAlert } from "@/lib/db/seo-alerts";
-import type { TaskStatus, OpportunityStatus, AutonomyLevel, GithubPublicationMode } from "@/lib/supabase/types";
+import type { TaskStatus, OpportunityStatus, AutonomyLevel, GithubPublicationMode, GithubContentAdapter } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
   const name = String(formData.get("name") ?? "").trim();
@@ -560,11 +560,12 @@ export async function selectGitHubRepositoryAction(formData: FormData): Promise<
   const repoFullName = String(formData.get("repo_full_name") ?? "");
   const productionBranch = String(formData.get("production_branch") ?? "").trim();
   const publicationMode = String(formData.get("publication_mode") ?? "GITHUB_PULL_REQUEST") as GithubPublicationMode;
+  const contentAdapter = String(formData.get("content_adapter") ?? "configurable_markdown") as GithubContentAdapter;
   const accountLogin = String(formData.get("account_login") ?? "");
   const [owner, repo] = repoFullName.split("/");
   if (!owner || !repo || !productionBranch) throw new Error("Choose a repository and production branch.");
 
-  await selectGitHubRepository({ websiteId, owner, repo, productionBranch, publicationMode, accountLogin });
+  await selectGitHubRepository({ websiteId, owner, repo, productionBranch, publicationMode, accountLogin, contentAdapter });
   revalidatePath(`/admin/websites/${websiteId}/publishing`);
   redirect(`/admin/websites/${websiteId}/publishing`);
 }
