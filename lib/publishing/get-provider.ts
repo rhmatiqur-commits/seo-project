@@ -1,25 +1,104 @@
 import { WordPressPublishingProvider } from "@/lib/publishing/wordpress-provider";
+import { GitHubPublishingProvider } from "@/lib/publishing/github/provider";
+import { PersonalAccessTokenAuth } from "@/lib/publishing/github/auth";
+import { ConfigurableMarkdownContentAdapter } from "@/lib/publishing/github/markdown-adapter";
+import { CvCentralContentAdapter } from "@/lib/publishing/github/cvcentral-adapter";
+import type { WebsiteContentAdapter } from "@/lib/publishing/github/content-adapter";
 import type { PublishingProvider } from "@/lib/publishing/provider";
-import type { CmsProvider } from "@/lib/supabase/types";
+import type { CmsProvider, GithubContentAdapter, GithubPublicationMode } from "@/lib/supabase/types";
 
-export interface PublishingConnectionConfig {
-  provider: CmsProvider;
-  baseUrl: string;
-  username: string;
-  applicationPassword: string;
+export type PublishingConnectionConfig =
+  | { provider: "wordpress"; baseUrl: string; username: string; applicationPassword: string }
+  | { provider: "github"; owner: string; repo: string; productionBranch: string; publicationMode: GithubPublicationMode; contentAdapterKind: GithubContentAdapter; token: string };
+
+/**
+ * Which WebsiteContentAdapter a GitHub connection uses is a *configuration*
+ * choice (cms_connections.content_adapter, migration 0025), not something
+ * GitHubPublishingProvider or this factory hard-codes by owner/repo —
+ * "no CV-Central-specific file paths in the generic GitHub provider" stays
+ * true even though a real, non-generic CV Central adapter now exists.
+ */
+function createContentAdapter(kind: GithubContentAdapter): WebsiteContentAdapter {
+  switch (kind) {
+    case "cvcentral":
+      return new CvCentralContentAdapter();
+    case "configurable_markdown":
+    default:
+      return new ConfigurableMarkdownContentAdapter();
+  }
 }
 
 /**
  * Per-call factory, not a process-wide singleton like lib/ai/get-provider.ts
  * or lib/content/get-provider.ts — credentials are per-website, decrypted
  * fresh by the job handler right before use (see lib/db/cms-connections.ts),
- * never cached in memory across requests. Adding Webflow/Shopify/a custom
- * CMS later is one more branch here, no call-site changes.
+ * never cached in memory across requests. `config` is a discriminated union
+ * (not one flat object with optional fields) so a caller can't accidentally
+ * pass a half-WordPress, half-GitHub config and have it silently ignored —
+ * TypeScript forces every field the chosen provider actually needs.
+ *
+ * Adding Webflow/Shopify/a custom CMS later is one more union member and one
+ * more switch branch here, no call-site changes beyond building that
+ * member's config (same "Phase 5 architects clearly designed for this"
+ * extension point, now actually exercised by Phase 6A's GitHub branch).
  */
 export function createPublishingProvider(config: PublishingConnectionConfig): PublishingProvider {
   switch (config.provider) {
+    case "github":
+      return new GitHubPublishingProvider({
+        auth: new PersonalAccessTokenAuth(config.token),
+        owner: config.owner,
+        repo: config.repo,
+        productionBranch: config.productionBranch,
+        publicationMode: config.publicationMode,
+        contentAdapter: createContentAdapter(config.contentAdapterKind),
+      });
     case "wordpress":
     default:
       return new WordPressPublishingProvider(config);
   }
+}
+
+/** Minimal shape of a cms_connections row this helper needs — structural,
+ * not the full generated Row type, so it stays easy to unit-test/reuse. */
+export interface CmsConnectionForProviderConfig {
+  provider: CmsProvider;
+  base_url: string | null;
+  username: string | null;
+  github_owner: string | null;
+  github_repo: string | null;
+  github_production_branch: string | null;
+  github_publication_mode: GithubPublicationMode;
+  content_adapter: GithubContentAdapter;
+}
+
+/**
+ * Maps a cms_connections row + its already-decrypted secret onto the right
+ * PublishingConnectionConfig union member — the one place this branching
+ * logic lives, reused by every call site that needs a provider instance
+ * (lib/jobs/handlers/publishing-shared.ts, app/admin/actions.ts's
+ * testCmsConnectionAction) so it can't drift between them. Throws a clear,
+ * permanent-shaped error if a connection is missing the fields its own
+ * provider requires (e.g. a GitHub connection that never finished
+ * repository selection) — never silently guesses.
+ */
+export function buildPublishingConnectionConfig(connection: CmsConnectionForProviderConfig, decryptedSecret: string): PublishingConnectionConfig {
+  if (connection.provider === "github") {
+    if (!connection.github_owner || !connection.github_repo || !connection.github_production_branch) {
+      throw new Error("GitHub connection is missing a selected repository/production branch — finish repository selection before publishing.");
+    }
+    return {
+      provider: "github",
+      owner: connection.github_owner,
+      repo: connection.github_repo,
+      productionBranch: connection.github_production_branch,
+      publicationMode: connection.github_publication_mode,
+      contentAdapterKind: connection.content_adapter,
+      token: decryptedSecret,
+    };
+  }
+  if (!connection.base_url || !connection.username) {
+    throw new Error("WordPress connection is missing its site URL/username — reconnect before publishing.");
+  }
+  return { provider: "wordpress", baseUrl: connection.base_url, username: connection.username, applicationPassword: decryptedSecret };
 }

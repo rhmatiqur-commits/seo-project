@@ -234,6 +234,12 @@ export function getNextJobType(jobType: JobType): JobType | null {
       // EXECUTED actions worth re-checking on any given day regardless of
       // whether either of those just ran.
       return null;
+    case "MERGE_TO_PRODUCTION":
+      // Terminal, and — like CREATE_DRAFT/PUBLISH_CONTENT — never
+      // auto-chained: production merge requires an explicit human action
+      // (Phase 6A), never fired automatically by CREATE_DRAFT completing,
+      // regardless of the connection's configured publication_mode.
+      return null;
     default:
       return null;
   }

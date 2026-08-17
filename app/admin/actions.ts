@@ -15,14 +15,14 @@ import { getContentBrief, getContentJob, getContentVersionById, getLatestContent
 import { createContentBriefForOpportunity } from "@/lib/content/create-brief";
 import { getContentProvider } from "@/lib/content/get-provider";
 import { canTransitionContentJob } from "@/lib/content/state-machine";
-import { upsertCmsConnection, getCmsConnectionForWebsite, markConnectionTested, getDecryptedCredential } from "@/lib/db/cms-connections";
+import { upsertCmsConnection, getCmsConnectionForWebsite, markConnectionTested, getDecryptedCredential, upsertGitHubToken, selectGitHubRepository } from "@/lib/db/cms-connections";
 import { getOrCreatePublicationForVersion } from "@/lib/db/content-publications";
 import { recordPublicationAuditEvent } from "@/lib/db/publication-audit";
-import { createPublishingProvider } from "@/lib/publishing/get-provider";
+import { createPublishingProvider, buildPublishingConnectionConfig } from "@/lib/publishing/get-provider";
 import { isContentApprovedForPublication } from "@/lib/publishing/eligibility";
 import { recordSeoActionForCompletedTask } from "@/lib/jobs/handlers/record-seo-action";
 import { acknowledgeAlert } from "@/lib/db/seo-alerts";
-import type { TaskStatus, OpportunityStatus, AutonomyLevel } from "@/lib/supabase/types";
+import type { TaskStatus, OpportunityStatus, AutonomyLevel, GithubPublicationMode, GithubContentAdapter } from "@/lib/supabase/types";
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
   const name = String(formData.get("name") ?? "").trim();
@@ -446,8 +446,8 @@ export async function testCmsConnectionAction(formData: FormData): Promise<void>
   const connection = await getCmsConnectionForWebsite(websiteId);
   if (!connection) throw new Error("No CMS connection is configured for this website yet.");
 
-  const applicationPassword = await getDecryptedCredential(connection.credential_secret_id);
-  const provider = createPublishingProvider({ provider: connection.provider, baseUrl: connection.base_url, username: connection.username, applicationPassword });
+  const decryptedSecret = await getDecryptedCredential(connection.credential_secret_id);
+  const provider = createPublishingProvider(buildPublishingConnectionConfig(connection, decryptedSecret));
   const result = await provider.testConnection();
   await markConnectionTested(connection.id, result.ok, result.ok ? null : result.message);
 
@@ -506,8 +506,11 @@ export async function createDraftAction(formData: FormData): Promise<void> {
   redirect(`/admin/websites/${websiteId}/content/${briefId}`);
 }
 
-/** The only action that can make content publicly visible. Also doubles as
- * "Retry Failed Publication" when the last attempt FAILED. */
+/** The only action that can make content publicly visible on a
+ * WordPress-connected website. Also doubles as "Retry Failed Publication"
+ * when the last attempt FAILED. For a GitHub-connected website, this button
+ * is not shown at all — see mergeToProductionAction below, a deliberately
+ * distinct operation (Phase 6A). */
 export async function publishContentAction(formData: FormData): Promise<void> {
   const { websiteId, organizationId, briefId, publicationId } = await loadApprovedPublicationTarget(formData);
   await triggerJob({
@@ -516,6 +519,73 @@ export async function publishContentAction(formData: FormData): Promise<void> {
     jobType: "PUBLISH_CONTENT",
     payload: { content_publication_id: publicationId },
     idempotencyKey: `PUBLISH_CONTENT:${formData.get("content_version_id")}`,
+  });
+  revalidatePath(`/admin/websites/${websiteId}/content/${briefId}`);
+  redirect(`/admin/websites/${websiteId}/content/${briefId}`);
+}
+
+// ---------------------------------------------------------------------------
+// GitHub/Vercel Publishing Provider (Phase 6A). connectGitHubTokenAction/
+// selectGitHubRepositoryAction extend the same cms_connections
+// architecture connectCmsAction/testCmsConnectionAction already use — see
+// lib/db/cms-connections.ts's upsertGitHubToken/selectGitHubRepository.
+// ---------------------------------------------------------------------------
+
+/** Step 1 of connecting a GitHub-based website: save a repository-scoped
+ * Personal Access Token (encrypted via the same Supabase Vault mechanism as
+ * WordPress's Application Password — never a plaintext column, never
+ * returned in any response). Moves the connection to
+ * 'pending_repo_selection' — the admin still has to pick a repository next
+ * (see the RepoPicker component on the Publishing page). */
+export async function connectGitHubTokenAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const organizationId = String(formData.get("organization_id"));
+  const token = String(formData.get("token") ?? "").trim();
+  if (!token) throw new Error("A GitHub personal access token is required.");
+
+  const website = await getWebsite(websiteId);
+  const realOrganizationId = assertWebsiteBelongsToOrganization(website, organizationId, websiteId);
+
+  await upsertGitHubToken({ organizationId: realOrganizationId, websiteId, token });
+  revalidatePath(`/admin/websites/${websiteId}/publishing`);
+  redirect(`/admin/websites/${websiteId}/publishing`);
+}
+
+/** Step 2: the admin's repository/branch/mode choice, from a live-listed set
+ * the Publishing page's RepoPicker fetched during render — never a
+ * manually-typed URL (spec: "do not require the user to manually enter a
+ * repository URL if the GitHub API can provide it"). */
+export async function selectGitHubRepositoryAction(formData: FormData): Promise<void> {
+  const websiteId = String(formData.get("website_id"));
+  const repoFullName = String(formData.get("repo_full_name") ?? "");
+  const productionBranch = String(formData.get("production_branch") ?? "").trim();
+  const publicationMode = String(formData.get("publication_mode") ?? "GITHUB_PULL_REQUEST") as GithubPublicationMode;
+  const contentAdapter = String(formData.get("content_adapter") ?? "configurable_markdown") as GithubContentAdapter;
+  const accountLogin = String(formData.get("account_login") ?? "");
+  const [owner, repo] = repoFullName.split("/");
+  if (!owner || !repo || !productionBranch) throw new Error("Choose a repository and production branch.");
+
+  await selectGitHubRepository({ websiteId, owner, repo, productionBranch, publicationMode, accountLogin, contentAdapter });
+  revalidatePath(`/admin/websites/${websiteId}/publishing`);
+  redirect(`/admin/websites/${websiteId}/publishing`);
+}
+
+/** The only action that can merge a GitHub pull request into the production
+ * branch — the git-flow equivalent of publishContentAction, kept as a
+ * genuinely distinct operation (spec: "Production merge must require
+ * explicit user action initially. Add MERGE_TO_PRODUCTION as a distinct
+ * operation"). Every re-check (content APPROVED, connection valid, PR
+ * exists and is mergeable) happens server-side in the job handler
+ * (lib/jobs/handlers/merge-to-production.ts) against live database/GitHub
+ * state — never trusted from this form. */
+export async function mergeToProductionAction(formData: FormData): Promise<void> {
+  const { websiteId, organizationId, briefId, publicationId } = await loadApprovedPublicationTarget(formData);
+  await triggerJob({
+    organizationId,
+    websiteId,
+    jobType: "MERGE_TO_PRODUCTION",
+    payload: { content_publication_id: publicationId },
+    idempotencyKey: `MERGE_TO_PRODUCTION:${formData.get("content_version_id")}`,
   });
   revalidatePath(`/admin/websites/${websiteId}/content/${briefId}`);
   redirect(`/admin/websites/${websiteId}/content/${briefId}`);
