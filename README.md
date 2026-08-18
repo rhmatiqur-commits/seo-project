@@ -80,12 +80,21 @@ SEO ACTION (published page / completed task) → GOOGLE → SEARCH CONSOLE → d
 APPROVED content → GitHub branch → commit → pull request → Vercel preview deployment → human review → explicit MERGE_TO_PRODUCTION → Vercel production deployment → live URL
 ```
 
-GitHub is the source of truth; this platform never touches Vercel's production filesystem or calls the Vercel API to publish — Vercel deploys automatically from the GitHub changes `GitHubPublishingProvider` makes, and a preview URL is detected (best-effort) straight from GitHub's own commit-status/check APIs. Nothing merges to production without an explicit, separately-audited `MERGE_TO_PRODUCTION` action — `CREATE_DRAFT` (reused, not duplicated, from Phase 5) only ever opens a pull request. A `WebsiteContentAdapter` layer keeps site-specific file/route/frontmatter knowledge out of the generic GitHub provider; CV Central's own repository was not reachable when this was built (verified the same way Phase 4 verified this for its content-generation system), so a configuration-driven generic Markdown adapter ships instead of a hard-coded one — see the dedicated section below for exactly what CV Central integration still needs.
+GitHub is the source of truth; this platform never touches Vercel's production filesystem or calls the Vercel API to publish — Vercel deploys automatically from the GitHub changes `GitHubPublishingProvider` makes, and a preview URL is detected (best-effort) straight from GitHub's own commit-status/check APIs. Nothing merges to production without an explicit, separately-audited `MERGE_TO_PRODUCTION` action — `CREATE_DRAFT` (reused, not duplicated, from Phase 5) only ever opens a pull request. A `WebsiteContentAdapter` layer keeps site-specific file/route/frontmatter knowledge out of the generic GitHub provider; CV Central's own repository was not reachable when this was built (verified the same way Phase 4 verified this for its content-generation system), so a configuration-driven generic Markdown adapter ships instead of a hard-coded one — see the dedicated section below for exactly what CV Central integration still needs. A real `CvCentralContentAdapter` was added in a follow-up, built from directly inspecting the actual `rhmatiqur-commits/cvcentral` repository (public, read-only) — see that section for what its static-HTML, no-build-step site actually looks like.
+
+**Phase 7** turns the platform from an internal tool into a real multi-tenant SaaS — a client can log in and see only their own organisation's SEO operation:
+
+```
+Organisation → Users (OWNER/MANAGER/EDITOR/VIEWER) → Website → SEO data/Tasks/Content/Publishing/Outcomes
+```
+
+The `organizations`/`memberships` tables and every tenant table's `is_org_member(organization_id)` RLS policy already existed from Phase 1 — built then, exercised for the first time now. What Phase 7 actually adds: real Supabase Auth sessions (`/dashboard/login`, replacing nothing for `/admin`, which keeps its own separate `ADMIN_PASSWORD` gate unchanged), a richer role model, an invitation flow, and an entirely new client-facing `/dashboard/[orgSlug]/**` surface that reuses the exact same `lib/db/*`/`lib/jobs/*` services `/admin` does — never a parallel implementation. A live cross-tenant probe (a real second organisation, a real signed-in-with-the-anon-key session, 20 separate cross-tenant read attempts against a real other organisation's data) confirmed RLS blocks every one of them before any UI code was trusted — see the dedicated section below.
 
 ## Architecture
 
 - **Framework**: Next.js 16 (App Router) + TypeScript. One app serves both the JSON API (`app/api/**`, Route Handlers) and a deliberately plain internal admin UI (`app/admin/**`, server components + server actions — no client-side framework, no design investment).
-- **Database/auth**: Supabase (Postgres + Auth + RLS). The Next.js server talks to Supabase with the **service-role key** (`lib/supabase/server.ts`) — it's a trusted backend, so Phase 1 doesn't route through RLS. The schema and RLS policies are written now so Phase 2 can expose data straight to logged-in client users later without a schema change.
+- **Database/auth**: Supabase (Postgres + Auth + RLS). `/admin/**` talks to Supabase with the **service-role key** (`lib/supabase/server.ts`'s `supabaseAdmin()`) — a trusted internal backend, so it doesn't route through RLS, same as every phase before Phase 7. `/dashboard/**` (Phase 7) is the first caller to actually use a real signed-in user's session (`lib/supabase/server-session.ts`'s `createSessionClient()`, anon key + cookies) for *authentication* and RLS *cross-tenant read verification* — its own data-fetching code still calls the same service-role `lib/db/*` functions `/admin` does, gated by an explicit app-layer membership check (`lib/auth/session.ts`) first, same trust model as `/admin`'s own `assertOwnedByOrganization`, not a second RLS-only code path. See "Multi-Tenant Client Portal" below for exactly what that means and doesn't mean.
+- **Client portal auth** (Phase 7): `@supabase/ssr` for cookie-based sessions; `proxy.ts` gates `/dashboard/**` with a *separate* check from `/admin/**`'s Basic Auth — a missing/invalid Supabase session redirects to `/dashboard/login`, never falls back to or interferes with the admin password gate.
 - **Crawler**: `lib/crawler/*` — built-in `fetch` + `cheerio` for HTML parsing + `robots-parser` for robots.txt. No headless browser (no JS rendering) — a known Phase 1 limitation.
 - **SEO audit**: `lib/audit/*` — a set of small, pure rule functions (`lib/audit/rules/*.ts`) run over crawled pages/links by `lib/audit/engine.ts`.
 - **AI**: `lib/ai/provider.ts` defines an `AIProvider` interface (`generateStructuredOutput`, `generateText`, `analyse`); `lib/ai/anthropic-provider.ts` is the only implementation today, using Claude's tool-use for structured output. `lib/ai/seo-analysis.ts` is the orchestration: build a compact structured summary from the DB → call the provider → validate with zod → dedupe → persist opportunities + tasks.
@@ -123,8 +132,16 @@ app/
     content-versions/[id]/publish/  manual PUBLISH_CONTENT trigger
     content-versions/[id]/merge-to-production/  manual MERGE_TO_PRODUCTION trigger, GitHub connections only (Phase 6A)
     auth/google-search-console/start|callback/  OAuth flow (callback excluded from Basic Auth by necessity; state-signed)
+  dashboard/         client-facing portal (Supabase-session-gated, Phase 7) — separate from /admin, same underlying services
+    login/, forgot-password/, reset-password/, accept-invite/  auth pages (public within /dashboard, Server Actions in auth-actions.ts)
+    [orgSlug]/       every real page — layout.tsx is the sidebar/nav shell + membership gate
+      opportunities/, tasks/, content/[briefId]/, publishing/, outcomes/, audit/, search-console/, keywords/, competitors/, reports/, settings/
+    actions.ts       every data-mutating Server Action — role-checked via requireOrganizationMembership() + lib/auth/permissions.ts before calling the same lib/db/*/lib/jobs/* functions /admin uses
 lib/
   supabase/          server-side client + generated Database types
+    server-session.ts  request-scoped anon-key + user-session client (Phase 7) — RLS-respecting, used for auth operations
+  auth/              session.ts (requireOrganizationMembership — the one authorisation choke point), permissions.ts (pure role->capability rules), users.ts (auth.users lookups via the Admin API) (Phase 7)
+  dashboard/         website.ts — resolves "the" website for an organisation-scoped dashboard page (Phase 7)
   crawler/            crawl engine (fetchWithRedirects exported for reuse by competitor-page fetching)
   audit/               technical SEO rules + engine
   ai/                    provider abstraction, schemas, prompts, analysis service
@@ -147,9 +164,10 @@ SECURITY_AUDIT.md      Phase 2D API authorization audit — full route inventory
 
 ## Database schema
 
-37 tables (2 gained new columns in Phase 6A: `cms_connections`, `content_publications`), UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0025_github_content_adapter.sql`) for the full source of truth.
+38 tables (2 gained new columns in Phase 6A: `cms_connections`, `content_publications`), UUID primary keys, `created_at`/`updated_at` timestamps, RLS enabled everywhere. See `supabase/migrations/` (`0001_init.sql` through `0027_client_portal_invitations.sql`) for the full source of truth.
 
-- **organizations**, **memberships** (user↔org, role) — core multi-tenancy.
+- **organizations**, **memberships** (user↔org, role) — core multi-tenancy, built in Phase 1, actually exercised by real Supabase Auth sessions for the first time in Phase 7. `memberships.role` (Phase 7) is `OWNER`/`MANAGER`/`EDITOR`/`VIEWER` — the original Phase 1 labels (`owner`/`admin`/`member`) are still valid enum values (Postgres enums are add-only) but were never used by any app code and aren't part of the Phase 7 role model; `lib/auth/permissions.ts` treats any of them as the lowest rank rather than crashing.
+- **organization_invitations** (Phase 7) — Owner/Manager invites an email to a role; an unguessable `token` (distinct from the row's own `id`) is the only thing the emailed link carries — acceptance always re-derives the organisation/role from this row server-side, never from the browser. A partial unique index blocks two simultaneous *pending* invitations for the same email in the same org; re-inviting after acceptance/revocation is fine.
 - **websites** — per-org, with crawl limits (`crawl_max_pages`, `crawl_max_depth`), last-known robots.txt/sitemap availability, and five **independent** recurring schedules: `next_crawl_at`/`crawl_frequency_days` (default 7 — weekly), `next_keyword_discovery_at`/`keyword_discovery_frequency_days` (default 30 — monthly, Phase 2B), `next_search_console_sync_at`/`search_console_sync_frequency_days` (default 1 — daily, Phase 2C), `next_serp_fetch_at`/`serp_fetch_frequency_days` (default 7, Phase 3 — per-keyword HIGH/MEDIUM/LOW tiering is layered on top in application code, see below), and `next_action_outcomes_at`/`action_outcomes_frequency_days` (default 1 — daily, Phase 6; cheap to run daily since the job is a no-op when nothing is due). Also `default_serp_location` (Phase 3) — a free-text location (e.g. `"Coventry,England,United Kingdom"`) used for that website's SERP requests; local SEO isn't globally interchangeable. `status='active'` doubles as the "eligible for scheduling" flag for all five; `paused`/`archived` websites are skipped. `ANALYSE_SEARCH_PERFORMANCE` (Phase 2D) and the Phase 3 competitor jobs have no schedule column of their own — they chain after a completed sync/fetch instead (see "Scheduler" below); `ANALYSE_ACTION_OUTCOMES` (Phase 6) deliberately does *not* chain the same way — see its own section. `business_description`/`target_audience`/`brand_voice`/`content_constraints` (Phase 4) — nullable, admin-editable business facts the content brief reads; never auto-filled, a null value is surfaced to both the human reviewer and the QA factuality check instead. `autonomy_level` (Phase 6, default `AI_RECOMMENDS`) — see "Autonomy levels" below.
 - **jobs** — generic async job queue (`job_type`, `status`, `priority`, `retry_count`/`max_retries`, `payload`, `result`, timestamps). A partial unique index on `idempotency_key` (scoped to `PENDING`/`PROCESSING` only — see migration `0003`) is the mechanism that prevents duplicate concurrent jobs of the same type for the same website, reused as-is by every schedule.
 - **scheduler_runs** — one row per sweep (Phase 2A): counts of websites checked, crawl jobs created, jobs processed/completed/failed/retried, stale-recovered, timestamps, error (keyword-discovery counts live in the `summary` jsonb column). Platform-internal (not tenant data) — RLS enabled with no policies, service-role only.
@@ -783,7 +801,88 @@ Admin UI: connect a repository on a website's Publishing page (`/admin/websites/
 curl -X POST http://localhost:3000/api/content-versions/<version-id>/merge-to-production -u admin:$ADMIN_PASSWORD
 ```
 
-## What remains for Phase 7+
+## Multi-Tenant Client Portal (Phase 7)
+
+Turns the platform from an internal tool into a real SaaS: a client logs in with their own email/password and sees only their own organisation's SEO operation, never another client's — enforced both server-side (an explicit membership check before any privileged query) and by Postgres RLS (verified live, not just asserted). `/admin/**` is completely untouched — same `ADMIN_PASSWORD` Basic Auth, same code, same behaviour before and after this phase.
+
+### What already existed (found during inspection, not rebuilt)
+
+Before writing a single line of Phase 7 code, the existing architecture was inspected end to end: `organizations`/`memberships` tables, an `is_org_member(organization_id)` Postgres function checking `memberships.user_id = auth.uid()`, and an RLS policy using it on **every one of the 35 tenant tables that existed at the time** (confirmed by querying `pg_policies` directly against the live project) — all built in Phase 1, never exercised, because every request before this phase went through the service-role key. `websites.organization_id` already gives the full ownership chain the spec asked to use instead of stamping `organization_id` on every child table. CV Central's data was already in its own organisation (seeded in Phase 1, used as the test client throughout Phases 2–6A). None of this was rebuilt — Phase 7's actual work was making a real session exist and building the client surface on top of what was already there.
+
+### Authentication
+
+`@supabase/ssr` — `lib/supabase/server-session.ts`'s `createSessionClient()` is a request-scoped (cookie-bound, built fresh per render — never cached like `supabaseAdmin()`) client using the anon key, safe to ship to the browser by Supabase's own convention precisely because RLS, not secrecy of that key, is what protects tenant data behind it. `proxy.ts` gates `/dashboard/**` with a separate branch from `/admin/**`'s Basic Auth check — refreshes the session cookie (the standard `@supabase/ssr` middleware pattern) and redirects to `/dashboard/login` when there's no valid user, using `auth.getUser()` (revalidates the JWT against the Auth server) never `auth.getSession()` (only reads the local cookie, unverified — not safe to gate access on). Every dashboard page independently calls `lib/auth/session.ts`'s `requireOrganizationMembership()` too, rather than trusting the middleware alone — the same "each page loads its own data, doesn't trust a shared context" convention `/admin` already uses.
+
+Login/logout/password-reset are all plain HTML forms posting to Server Actions (`app/dashboard/auth-actions.ts`) — no client-side JS framework, consistent with the rest of this codebase. Password reset uses Supabase's PKCE flow: the emailed link lands on `/dashboard/reset-password?code=...`, which exchanges the code for a short-lived recovery session server-side (in the page's own render, before anything is displayed) before showing the "set a new password" form.
+
+### Organisations, roles, and permissions
+
+`memberships.role` is now `OWNER`/`MANAGER`/`EDITOR`/`VIEWER` (migration `0026`) — the exact permission table from the spec, implemented as small named pure functions in `lib/auth/permissions.ts` (`canApproveContent`, `canPreparePublication`, `canPublishToProduction`, `canManageIntegrations`, `canManageUsers`, `canEditContent`, ...), unit-tested directly (no DB, no session — same "pure function first" convention as `lib/outcomes/autonomy.ts`). `EDITOR` cannot publish to production by default ("only if explicitly permitted" — no per-user override mechanism exists yet, so the safe default is `MANAGER`+ only). Hiding a button for a role that can't use it is a UX nicety only, never the security boundary — every Server Action re-derives the caller's actual role from their session and calls the same permission function again before mutating anything.
+
+`lib/auth/session.ts`'s `requireOrganizationMembership(orgSlug, minRole?)` is the one function every dashboard page and Server Action calls: resolves the real organisation from the URL's `orgSlug` (routes are `/dashboard/[orgSlug]/...`), then asserts — via an explicit `user_id`+`organization_id` database query (`lib/db/memberships.ts`'s `getMembershipForUser`), never inferred from the URL itself — that the signed-in user actually belongs to it. A slug that doesn't resolve to a membership returns a plain 404, deliberately indistinguishable from "this organisation doesn't exist," so a signed-in user can't use this page to enumerate other organisations' slugs.
+
+### How data access is actually enforced (read this before assuming "RLS enforces everything")
+
+Two layers, honestly described rather than overclaimed:
+
+1. **The primary, mandatory gate**: every dashboard page/action calls `requireOrganizationMembership()` (or, for Server Actions mutating a specific resource, additionally `lib/api/authorize.ts`'s `assertOwnedByOrganization` — the exact same IDOR guard `/admin`'s own actions and every `/api/**` route already use, here even stronger since the "expected" organisation id comes from a verified session+membership rather than a merely client-supplied hidden field being cross-checked). This is the boundary that actually runs on every request.
+2. **RLS as a structural backstop, not this app's primary enforcement path**: the dashboard's own data *reads* go through the same service-role `lib/db/*` functions `/admin` uses (scoped by the already-verified `organization.id`/`website.id`) — not a parallel RLS-scoped query layer for every list page. That's a deliberate simplicity/consistency trade-off, not an oversight: it means *this app's own request path* relies on layer 1, same trust model `/admin` has always had. RLS's real, verified value is that it protects the data at the database level regardless of what queries it — including a future mobile app, a different backend, or a bug in layer 1 that this app's own code never exercises. `createSessionClient()` (the actual RLS-respecting client) is used for what it's actually needed for: authentication itself (`signInWithPassword`/`signOut`/`getUser`/`updateUser`/`exchangeCodeForSession`).
+
+### Live cross-tenant RLS verification (not just asserted — run against the real database)
+
+A throwaway second organisation and a throwaway real Supabase Auth user were created, signed in with the **anon key** (not service-role — the only way to actually exercise RLS), and used to attempt 20 separate reads against CV Central's real data: `websites` (by id and by `organization_id`, filtered and unfiltered), `seo_opportunities`, `seo_tasks`, `content_briefs`, `content_versions`, `content_publications`, `publication_audit_log`, `cms_connections`, `search_console_connections`, `search_console_metrics`, `keywords`, `seo_actions`, `seo_action_outcomes`, `seo_alerts`, `competitor_domains`, another organisation's `memberships` rows, and `organization_invitations`. **Every single one returned zero rows** — no error, RLS silently filtered them, exactly the correct behaviour. A positive control (the same session reading its own throwaway organisation's own membership row) confirmed the client wasn't simply broken — it returned exactly one row. The throwaway organisation/user/membership were deleted immediately after.
+
+### The `/dashboard/[orgSlug]/**` surface
+
+`/dashboard` on its own resolves to the signed-in user's organisation (redirecting straight there when there's exactly one — the common case today) or offers a picker when there's more than one; every real page lives under `/dashboard/[orgSlug]/`. Every organisation in this platform has exactly one website today (CV Central, Voltvid) — `lib/dashboard/website.ts`'s `getPrimaryWebsiteForOrganization()` resolves "the" website per organisation rather than building a website-switcher for a multi-website-per-org case that doesn't exist yet; flagged below as a placeholder decision, not permanent.
+
+- **Overview** (`/dashboard/[org]`) — organic clicks/impressions/CTR/average position, active opportunities, pending approvals, issues needing attention, recent publications, outcome summary, open alerts.
+- **Opportunities** — Accept (marks approved, creates the linked `seo_tasks` row if one doesn't already exist — idempotent) / Dismiss, `MANAGER`+. Internal `priority_score` is translated into a Low/Medium/High "impact" badge, never the raw number.
+- **Tasks** — status changes (`MANAGER`+); marking one `completed` runs the exact same Phase 6 `recordSeoActionForCompletedTask` hook `/admin` uses.
+- **Content** — brief list, per-brief review (generated draft, QA result in plain language), Generate/Request changes (`EDITOR`+), Approve/Reject (`MANAGER`+ only — the one action in this whole surface with the highest stakes), and the same Prepare Publication/Approve & Publish to Production flow described below.
+- **Publishing** — every publication for the website, branch/PR/preview/live links, status.
+- **Outcomes** — Phase 6 in plain language ("Improved"/"Declined"/"Mixed result"/"Still gathering data" instead of the raw enum), the same non-causal, cautious framing (`lib/outcomes/*`) reused as-is — no second measurement system.
+- **SEO Audit** — open issues, filterable by severity.
+- **Search Console** — real Google data, explicitly labelled as such.
+- **Keywords**, **Competitors** — client-relevant subset of what `/admin` already computes; DataForSEO costs, `provider_usage`, and raw internal debug data are never surfaced.
+- **Reports** — a from-existing-data performance report (current vs. previous 28-day window, actions completed/successful/still-measuring/needing-attention, technical health) — no new reporting database, computed from `search_console_metrics`/`seo_actions`/`seo_action_outcomes`/`seo_issues`/`seo_opportunities` the same way the other pages already read them.
+- **Settings** — website info; Search Console/publishing connection status (`OWNER` can reconnect/update the GitHub token and pick a repository — a simpler manual owner/repo/branch form than `/admin`'s live-listed repository picker, a scope reduction flagged below rather than hidden); team list with role management and an invite form (`OWNER` only).
+
+### Publishing workflow (identical safety guarantees to Phase 6A, now client-facing)
+
+`APPROVED content → Prepare publication (branch + commit + PR, GitHub; draft, WordPress) → Vercel preview → client reviews → explicit Approve & Publish to Production → merge → live URL`. "Prepare publication" and "Approve & Publish to Production" are `MANAGER`+ only and are two genuinely distinct Server Actions (`preparePublicationAction`/`approveProductionMergeAction`) calling the exact same `CREATE_DRAFT`/`MERGE_TO_PRODUCTION`(or `PUBLISH_CONTENT` for WordPress) job types Phase 5/6A built — never a new publishing code path, and every server-side re-check (content actually `APPROVED`, connection active, PR exists/mergeable) still happens in the job handler against live database/GitHub state, exactly as before.
+
+### User invitations
+
+`OWNER`/`MANAGER` invites an email to a role (`app/dashboard/actions.ts`'s `inviteMemberAction`, `MANAGER`+ — though only `OWNER` can reach the Settings team UI that surfaces it, per `canManageUsers`). `/dashboard/accept-invite?token=...` looks up the invitation server-side by its unguessable `token` and: if already signed in as the invited email, one click creates the membership; if signed in as someone else, refuses with a clear message; if not signed in and an account already exists for that email, links to login (then auto-completes on return); if no account exists, lets them set a password, creates the Supabase Auth user (`email_confirm: true` — the invitation link itself, sent only to that address, is what proves email ownership here) and the membership together, then signs them straight in. The organisation id and role **always** come from the invitation row, never from anything the browser submits at any step.
+
+### Security audit — every `/api/**` route classified
+
+| Classification | Routes | Notes |
+|---|---|---|
+| **ADMIN-ONLY** (Basic Auth) | All 20 `/api/websites/**`, `/api/tasks/**`, `/api/jobs/**`, `/api/organizations/**`, `/api/content-briefs/**`, `/api/content-versions/**` routes | Unchanged by Phase 7 — the dashboard never calls any of these; it reads via Server Components and writes via its own Server Actions instead, keeping this entire surface exactly as audited in Phase 2D. |
+| **INTERNAL/SCHEDULER** | `/api/scheduler/run` | Unchanged — `CRON_SECRET` bearer, checked in-handler. |
+| **OAUTH CALLBACK** | `/api/auth/google-search-console/callback` | Unchanged — signed, expiring `state` param. |
+| **ORGANISATION-SCOPED** | *(none)* | Deliberately zero new `/api/**` routes for the client portal — smaller audit surface. `/dashboard/**` reads/writes go through Next.js Server Components/Server Actions instead, gated by `requireOrganizationMembership()` + RLS, not a parallel authenticated-API surface that would need its own independent audit. |
+
+No route needed to change. Specifically verified: a signed-in user cannot read another organisation's website/opportunities/content/Search Console connection/GitHub connection (live RLS probe, above); cannot approve or publish another organisation's content (`assertOwnedByOrganization` throws — same guard already unit-tested in `lib/api/authorize.test.ts`, reused here rather than duplicated); cannot manipulate another organisation's outcomes (the dashboard has no outcome-mutation action at all — outcomes are read-only, and reads are RLS-blocked regardless).
+
+### Testing
+
+`lib/auth/permissions.test.ts` — 9 tests covering every role→capability rule including the legacy-label fail-closed case. Plus the live, non-`npm test` verification above (RLS cross-tenant probe, real login/logout/session-redirect browser check, `/admin` Basic Auth confirmed untouched) — synthetic-fixture unit tests can't prove "RLS actually blocks a real signed-in session," only a live database can, so that check is documented here rather than faked as a mocked unit test. 473 tests total, 0 failures; `typecheck`/`build` both clean.
+
+### Known limitations, honestly flagged
+
+- **One website per organisation, by convention, not by schema.** `lib/dashboard/website.ts` always resolves the *first active* website — correct for every organisation that exists today (CV Central, Voltvid), not yet a real multi-website switcher.
+- **Settings' GitHub repository picker is a manual owner/repo/branch form**, not `/admin`'s live-listed-from-the-GitHub-API picker — a scope reduction for this phase, not a security gap (the same `selectGitHubRepository` DB function and `OWNER`-only gate either way).
+- **Search Console connection is admin-initiated only** — the OAuth flow (`/api/auth/google-search-console/*`) isn't yet reachable from a dashboard session; Settings shows connection status read-only and directs the client to their account manager.
+- **Dashboard reads go through `lib/db/*` (service-role), gated by an explicit app-layer membership check** — see "How data access is actually enforced" above. This is the same trust model `/admin` has always used, not a regression, but it means RLS is verified as a real, working backstop rather than being this specific app's own enforcement mechanism for every read.
+
+### Demo credentials created for the success criteria
+
+Organisation **CV Central** (already existed) + a real Supabase Auth user **`client@cvcentral.io`** with an `OWNER` membership, created via the Admin API exactly as a real onboarding would — the generated password was shared once, out of band, at the end of this phase's work; treat it as a demo credential to rotate before any real client uses this deployment.
+
+## What remains for Phase 8+
 
 - **`CvCentralContentAdapter` tool-page support** — `OPTIMISE_EXISTING_PAGE` is deliberately scoped to `blog/*.html` only for now; tool/app pages (`cv-builder.html` etc.) have a materially different, sparser structure and are refused rather than guessed at — see "The content adapter" above.
 - **A real sitemap for CV Central** — the repository has neither `sitemap.xml` nor `robots.txt` today; not something this adapter invents or fixes.
@@ -793,6 +892,10 @@ curl -X POST http://localhost:3000/api/content-versions/<version-id>/merge-to-pr
 - **Image handling and a sitemap/route-manifest update step** for GitHub-based publishing — no image pipeline exists yet (same gap as Phase 5's WordPress featured-image limitation), and no adapter updates a sitemap alongside a new page.
 - **Webflow, Shopify, and other `PublishingProvider` implementations** — the interface was designed for this from day one; WordPress and GitHub are the first two, not the only, implementations.
 - **SEO-plugin integration** (Yoast/RankMath meta fields) — deliberately not implemented in Phase 5 (see "Metadata mapping" above); would need its own verified integration, not an assumption about which plugin a client runs.
+- **A real multi-website-per-organisation dashboard** — `getPrimaryWebsiteForOrganization()` picks the first active website; every organisation has exactly one today, so this is untested for the many-websites case.
+- **Client-initiated Search Console OAuth** — the flow exists (`/api/auth/google-search-console/*`) but isn't wired into a `/dashboard`-session-authenticated path yet; connecting GSC is still an admin/account-manager action.
+- **A live-listed GitHub repository picker in `/dashboard` Settings** — `/admin` has one; the dashboard's is a simpler manual owner/repo/branch form for now.
+- **Billing/Stripe, white-labeling, a mobile app** — explicitly out of scope for Phase 7 per spec, same as every other phase's own non-goals list.
 - **Featured image/categories/tags** for publishing, once Phase 4's content system actually produces image/taxonomy data to map.
 - A real `CvCentralContentProvider` (or equivalent) once an actual content-writing system/API becomes reachable — `AiContentProvider` is a deliberate placeholder behind the same interface, not a permanent choice.
 - Feeding real Search Console/SERP position data into `keyword_opportunities.difficulty_score`, replacing the AI-estimated placeholder now that real ranking data exists from two sources.

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { jsonb, type Database } from "@/lib/supabase/types";
+import { jsonb, type Database, type OpportunityStatus } from "@/lib/supabase/types";
 
 type OpportunityRow = Database["public"]["Tables"]["seo_opportunities"]["Row"];
 type OpportunityInsertRaw = Database["public"]["Tables"]["seo_opportunities"]["Insert"];
@@ -35,6 +35,20 @@ export async function listActiveOpportunityTitles(websiteId: string): Promise<st
     .in("status", ["new", "approved"]);
   if (error) throw error;
   return data.map((r) => r.title);
+}
+
+/**
+ * No caller updated seo_opportunities.status before Phase 7 — the admin UI
+ * only ever inserts/lists them (status stays 'new' until a detector-level
+ * row, e.g. search_performance_opportunities, is separately actioned). The
+ * client portal's "Accept"/"Dismiss" buttons are the first real use of this
+ * (spec: "Allow authorised users to: review, accept, dismiss").
+ */
+export async function updateOpportunityStatus(id: string, status: OpportunityStatus): Promise<OpportunityRow> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("seo_opportunities").update({ status }).eq("id", id).select().single();
+  if (error) throw error;
+  return data;
 }
 
 export async function insertOpportunity(input: OpportunityInsert): Promise<OpportunityRow> {
