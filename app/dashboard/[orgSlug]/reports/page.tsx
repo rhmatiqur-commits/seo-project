@@ -6,39 +6,16 @@ import { listOpportunitiesForWebsite } from "@/lib/db/opportunities";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
+import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta, DEFAULT_COMPARISON_WINDOW_DAYS } from "@/lib/dashboard/delta";
 
 export const dynamic = "force-dynamic";
 
-const WINDOW_DAYS = 28;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-function summarize(rows: { clicks: number; impressions: number; position: number | null }[]) {
-  let clicks = 0;
-  let impressions = 0;
-  let posSum = 0;
-  let posWeight = 0;
-  for (const r of rows) {
-    clicks += r.clicks;
-    impressions += r.impressions;
-    if (r.position !== null) {
-      posSum += r.position * r.impressions;
-      posWeight += r.impressions;
-    }
-  }
-  return { clicks, impressions, position: posWeight > 0 ? Math.round((posSum / posWeight) * 10) / 10 : null };
-}
-
-function deltaLabel(current: number, previous: number): { text: string; tone: string } {
-  if (previous === 0) return { text: current > 0 ? "New" : "-", tone: "flat" };
-  const pct = Math.round(((current - previous) / previous) * 1000) / 10;
-  if (pct > 0) return { text: `+${pct}%`, tone: "up" };
-  if (pct < 0) return { text: `${pct}%`, tone: "down" };
-  return { text: "No change", tone: "flat" };
-}
+// Phase 7.1C: the current/previous-window comparison this page originated
+// now lives in lib/dashboard/delta.ts, shared with the Home page's SEO
+// performance section — this file no longer has its own copy of
+// summarize/deltaLabel/the date-window math, only this page's own display
+// concerns (the "Last N days vs..." subtitle wording).
+const WINDOW_DAYS = DEFAULT_COMPARISON_WINDOW_DAYS;
 
 export default async function ReportsPage({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
@@ -54,22 +31,19 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
     );
   }
 
-  const now = new Date();
-  const currentStart = new Date(now.getTime() - WINDOW_DAYS * DAY_MS);
-  const previousEnd = new Date(currentStart.getTime() - DAY_MS);
-  const previousStart = new Date(previousEnd.getTime() - WINDOW_DAYS * DAY_MS);
+  const comparisonWindow = getComparisonWindow(WINDOW_DAYS);
 
   const [currentRows, previousRows, issues, opportunities, actions] = await Promise.all([
-    listSearchConsoleMetricsForWebsiteInRange(website.id, toIsoDate(currentStart), toIsoDate(now)),
-    listSearchConsoleMetricsForWebsiteInRange(website.id, toIsoDate(previousStart), toIsoDate(previousEnd)),
+    listSearchConsoleMetricsForWebsiteInRange(website.id, comparisonWindow.currentStart, comparisonWindow.currentEnd),
+    listSearchConsoleMetricsForWebsiteInRange(website.id, comparisonWindow.previousStart, comparisonWindow.previousEnd),
     listIssuesForWebsite(website.id),
     listOpportunitiesForWebsite(website.id),
     listSeoActionsForWebsite(website.id, { status: "EXECUTED" }),
   ]);
   const latestOutcomes = await listLatestOutcomesByActionForWebsite(website.id);
 
-  const current = summarize(currentRows);
-  const previous = summarize(previousRows);
+  const current = summarizeSearchConsoleRows(currentRows);
+  const previous = summarizeSearchConsoleRows(previousRows);
   const openIssues = issues.filter((i) => i.status === "open");
   const criticalOrHigh = openIssues.filter((i) => i.severity === "critical" || i.severity === "high");
   const openOpportunities = opportunities.filter((o) => o.status === "new");
@@ -90,8 +64,8 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
     }
   }
 
-  const clicksDelta = deltaLabel(current.clicks, previous.clicks);
-  const impressionsDelta = deltaLabel(current.impressions, previous.impressions);
+  const clicksDelta = computeDelta(current.clicks, previous.clicks);
+  const impressionsDelta = computeDelta(current.impressions, previous.impressions);
 
   return (
     <>
