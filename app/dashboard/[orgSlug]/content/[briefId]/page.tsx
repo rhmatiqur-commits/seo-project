@@ -14,6 +14,7 @@ import { ConfirmSubmitButton } from "@/app/dashboard/_components/ConfirmSubmitBu
 import { ActionGroup } from "@/app/dashboard/_components/ActionGroup";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 import { PublicationStepper } from "@/app/dashboard/_components/PublicationStepper";
+import { contentStatusLabel } from "@/lib/dashboard/status-labels";
 import type { ContentBrief } from "@/lib/content/brief-types";
 
 export const dynamic = "force-dynamic";
@@ -59,8 +60,8 @@ export default async function ContentBriefDashboardPage({ params }: { params: Pr
 
       <div className="dash-card action" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span className={`dash-badge ${latestJob?.status === "APPROVED" ? "success" : "info"}`}>{latestJob?.status.replace(/_/g, " ") ?? "Not started"}</span>
-          {latestQa && <span className={`dash-badge ${latestQa.passed ? "success" : "danger"}`}>QA {latestQa.passed ? "passed" : "failed"} ({latestQa.score})</span>}
+          <span className={`dash-badge ${latestJob?.status === "APPROVED" ? "success" : "info"}`}>{latestJob ? contentStatusLabel(latestJob.status) : "Not started"}</span>
+          {latestQa && <span className={`dash-badge ${latestQa.passed ? "success" : "danger"}`}>Quality check {latestQa.passed ? "passed" : "failed"}</span>}
         </div>
         <ActionGroup>
           <div className="dash-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -152,11 +153,11 @@ export default async function ContentBriefDashboardPage({ params }: { params: Pr
             )}
             <p className="dash-muted" style={{ fontSize: "0.85rem" }}>
               {publication?.pull_request_url && (
-                <a href={publication.pull_request_url} target="_blank" rel="noreferrer">View pull request &rarr;</a>
+                <a href={publication.pull_request_url} target="_blank" rel="noreferrer">Review changes &rarr;</a>
               )}
               {publication?.pull_request_url && publication?.preview_url && " · "}
               {publication?.preview_url && (
-                <a href={publication.preview_url} target="_blank" rel="noreferrer">View preview &rarr;</a>
+                <a href={publication.preview_url} target="_blank" rel="noreferrer">Preview site &rarr;</a>
               )}
               {(publication?.pull_request_url || publication?.preview_url) && publication?.target_url && publication?.status === "PUBLISHED" && " · "}
               {publication?.target_url && publication?.status === "PUBLISHED" && (

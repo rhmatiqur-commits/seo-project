@@ -208,16 +208,36 @@
   flex-shrink: 0;
   background: var(--dash-surface);
   border-right: 1px solid var(--dash-border);
-  padding: var(--dash-space-5) var(--dash-space-3);
+  padding: var(--dash-space-4) var(--dash-space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--dash-space-1);
+  gap: 2px;
 }
 .dash-brand { font-weight: 700; font-size: var(--dash-text-md); padding: var(--dash-space-2) var(--dash-space-2) var(--dash-space-5); color: var(--dash-text); }
 .dash-brand small { display: block; font-weight: 500; font-size: var(--dash-text-xs); color: var(--dash-text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ---- Workspace switcher (pinned at the top of the sidebar) ---- */
+.dash-workspace-switcher { position: relative; margin-bottom: var(--dash-space-3); }
+.dash-workspace-switcher.static { padding: var(--dash-space-2); }
+.dash-workspace-switcher summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: var(--dash-space-2); border-radius: var(--dash-radius-sm); cursor: pointer; list-style: none;
+}
+.dash-workspace-switcher summary::-webkit-details-marker { display: none; }
+.dash-workspace-switcher summary:hover { background: var(--dash-neutral-soft); }
+.dash-workspace-name { font-weight: 700; font-size: var(--dash-text-base); color: var(--dash-text); line-height: 1.25; }
+.dash-workspace-sub { font-size: var(--dash-text-xs); color: var(--dash-text-faint); margin-top: 1px; }
+.dash-workspace-chevron { flex-shrink: 0; color: var(--dash-text-faint); }
+.dash-workspace-switcher[open] .dash-workspace-chevron { transform: rotate(180deg); }
+.dash-workspace-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  background: var(--dash-surface); border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm);
+  box-shadow: var(--dash-shadow-raised); padding: 6px; max-height: 260px; overflow-y: auto;
+}
+
 .dash-nav-link {
   display: flex; align-items: center; gap: 10px;
-  padding: 9px var(--dash-space-2); border-radius: var(--dash-radius-sm);
+  padding: 8px var(--dash-space-2); border-radius: var(--dash-radius-sm);
   color: var(--dash-text-muted); font-size: var(--dash-text-sm); font-weight: 500;
 }
 .dash-nav-link .icon { flex-shrink: 0; width: 16px; height: 16px; opacity: 0.85; }
@@ -228,13 +248,54 @@
 }
 .dash-nav-link:hover { background: var(--dash-primary-soft); color: var(--dash-primary); text-decoration: none; }
 .dash-nav-link.active { background: var(--dash-primary-soft); color: var(--dash-primary); }
-.dash-nav-section { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dash-text-faint); padding: var(--dash-space-4) var(--dash-space-2) 4px; }
+.dash-nav-link.active .count { background: var(--dash-surface); }
+.dash-nav-section { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dash-text-faint); padding: var(--dash-space-3) var(--dash-space-2) 4px; }
+.dash-nav-section:first-of-type { padding-top: var(--dash-space-1); }
+
+/* ---- Sidebar footer: user identity, pinned to the bottom via the
+   sidebar's own flex-column + margin-top:auto (no extra wrapper needed). ---- */
+.dash-sidebar-footer { margin-top: auto; padding-top: var(--dash-space-2); border-top: 1px solid var(--dash-border); }
+.dash-avatar {
+  width: 28px; height: 28px; border-radius: 999px; flex-shrink: 0;
+  background: var(--dash-primary-soft); color: var(--dash-primary-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+}
+.dash-footer-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dash-footer-identity-text { min-width: 0; overflow: hidden; }
+.dash-footer-identity-name { font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-footer-identity-role { font-size: 11px; color: var(--dash-text-faint); text-transform: uppercase; letter-spacing: 0.03em; }
+
 .dash-content { flex: 1; min-width: 0; }
 .dash-topbar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--dash-space-3);
   padding: var(--dash-space-3) var(--dash-space-6); background: var(--dash-surface); border-bottom: 1px solid var(--dash-border);
   position: sticky; top: 0; z-index: 5;
 }
+.dash-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: var(--dash-text-sm); color: var(--dash-text-faint); min-width: 0; overflow: hidden; }
+.dash-breadcrumb .sep { color: var(--dash-text-faint); }
+.dash-breadcrumb .current { color: var(--dash-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-topbar-right { display: flex; align-items: center; gap: var(--dash-space-3); flex-shrink: 0; }
+
+/* ---- Account menu (topbar avatar / sidebar footer) — native <details>,
+   opening downward from the topbar, upward from the sidebar footer. ---- */
+.dash-account-menu { position: relative; }
+.dash-account-menu summary { cursor: pointer; list-style: none; }
+.dash-account-menu summary::-webkit-details-marker { display: none; }
+.dash-account-menu-panel {
+  position: absolute; right: 0; z-index: 20; width: 220px;
+  background: var(--dash-surface); border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm);
+  box-shadow: var(--dash-shadow-raised); padding: 6px;
+}
+.dash-account-menu.align-down .dash-account-menu-panel { top: calc(100% + 6px); }
+.dash-account-menu.align-up .dash-account-menu-panel { bottom: calc(100% + 6px); left: 0; right: auto; width: 100%; }
+.dash-account-menu-identity { padding: 8px 10px 10px; border-bottom: 1px solid var(--dash-border); margin-bottom: 4px; }
+.dash-account-menu-item {
+  display: block; padding: 8px 10px; border-radius: var(--dash-radius-xs);
+  font-size: var(--dash-text-sm); color: var(--dash-text); font-weight: 500;
+}
+.dash-account-menu-item:hover { background: var(--dash-neutral-soft); text-decoration: none; }
+.dash-topbar-avatar-trigger { display: flex; align-items: center; gap: 4px; }
 .dash-main { padding: var(--dash-space-6); max-width: 1180px; }
 .dash-page-title { font-size: var(--dash-text-xl); line-height: var(--dash-text-xl-lh); font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
 .dash-page-subtitle { color: var(--dash-text-muted); font-size: var(--dash-text-base); margin: 0 0 var(--dash-space-5); }
@@ -264,6 +325,8 @@
   cursor: pointer; padding: 4px 8px; border-radius: var(--dash-radius-xs);
 }
 .dash-drawer-close:hover { background: var(--dash-neutral-soft); }
+.dash-drawer-workspace { padding: var(--dash-space-2); margin-bottom: var(--dash-space-2); }
+.dash-drawer-footer { margin-top: auto; padding-top: var(--dash-space-3); border-top: 1px solid var(--dash-border); display: flex; flex-direction: column; gap: 2px; }
 
 /* ---- Primitives: cards with distinct roles, not one grey box ---- */
 .dash-card {
@@ -461,6 +524,39 @@
 .dash-auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--dash-space-5); }
 .dash-auth-card { width: 100%; max-width: 380px; }
 
+/* ---- Page sections: whitespace + headings + hairline dividers instead of
+   nesting every group of content in another bordered .dash-card. ---- */
+.dash-section { margin-bottom: var(--dash-space-7); }
+.dash-section:last-child { margin-bottom: 0; }
+.dash-section-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dash-text-faint); margin: 0 0 var(--dash-space-3); }
+.dash-divider { border: none; border-top: 1px solid var(--dash-border); margin: var(--dash-space-6) 0; }
+.dash-list-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dash-space-3);
+  padding: var(--dash-space-3) 0; border-bottom: 1px solid var(--dash-border);
+}
+.dash-list-row:last-child { border-bottom: none; }
+.dash-list-row .primary { font-size: var(--dash-text-base); font-weight: 600; color: var(--dash-text); }
+.dash-list-row .secondary { font-size: var(--dash-text-sm); color: var(--dash-text-muted); margin-top: 2px; }
+.dash-subsection-heading { font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text-muted); margin: var(--dash-space-5) 0 var(--dash-space-2); }
+.dash-subsection-heading:first-child { margin-top: 0; }
+
+/* ---- Technical-details disclosure (Publishing page etc.) — a quiet
+   secondary reveal for provider-specific info the client doesn't need to
+   understand the workflow. ---- */
+.dash-tech-details summary { cursor: pointer; font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text-muted); }
+.dash-tech-details summary:hover { color: var(--dash-text); }
+.dash-tech-details-body { margin-top: var(--dash-space-2); font-size: var(--dash-text-sm); color: var(--dash-text-muted); }
+
+/* ---- Workflow explainer (Publishing empty state) — a static, non-live
+   version of the stepper shape: describes the concept, never implies any
+   specific item has started moving through it. ---- */
+.dash-workflow-explainer { display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; margin-top: var(--dash-space-4); }
+.dash-workflow-step {
+  font-size: var(--dash-text-xs); font-weight: 600; color: var(--dash-text-muted);
+  background: var(--dash-neutral-soft); border-radius: 999px; padding: 5px 12px;
+}
+.dash-workflow-arrow { color: var(--dash-text-faint); font-size: var(--dash-text-sm); }
+
 /* ---- Responsive: hamburger + slide-over drawer replaces the sidebar
    below tablet width — never a horizontally-scrolling nav strip. ---- */
 @media (max-width: 860px) {
@@ -469,4 +565,12 @@
   .dash-hamburger { display: inline-flex; }
   .dash-main { padding: var(--dash-space-4); }
   .dash-topbar { padding: var(--dash-space-3) var(--dash-space-4); }
+  .dash-breadcrumb .current { max-width: 40vw; }
+}
+
+/* Tablet: sidebar stays, just narrower — a clean transition point between
+   the full desktop width and the mobile drawer, not a hard jump. */
+@media (min-width: 861px) and (max-width: 1080px) {
+  .dash { --dash-sidebar-w: 200px; }
+  .dash-main { padding: var(--dash-space-5); }
 }

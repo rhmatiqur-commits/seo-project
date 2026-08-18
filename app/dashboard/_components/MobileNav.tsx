@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { signOutAction } from "@/app/dashboard/auth-actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
+
+export interface MobileNavItem {
+  href: string;
+  label: string;
+  icon?: ReactNode;
+  count?: number;
+}
 
 export interface MobileNavSection {
   label: string;
-  items: { href: string; label: string }[];
+  items: MobileNavItem[];
 }
 
 export interface MobileNavSwitcherEntry {
@@ -16,20 +25,21 @@ export interface MobileNavSwitcherEntry {
 export interface MobileNavProps {
   orgName: string;
   role: string;
+  email: string;
   orgSlug: string;
   sections: MobileNavSection[];
   switcher?: MobileNavSwitcherEntry[];
 }
 
 /**
- * Replaces the old "collapse the sidebar into a horizontally-scrolling
- * strip" mobile pattern (easy to not notice it scrolls, easy to miss items
- * off-screen) with a standard hamburger → slide-over drawer exposing every
- * nav item. Desktop is untouched — the existing `<aside className="dash-
- * sidebar">` in the layout keeps rendering exactly as before; this only
- * shows below the 860px breakpoint (see dashboard.css).
+ * Phase 7.1A's hamburger → slide-over drawer, polished in 7.1B to carry
+ * the same hierarchy as the desktop sidebar: workspace identity, grouped
+ * sections with icons and attention counts, Settings, and the signed-in
+ * user's own identity + sign out — the mobile drawer checklist from the
+ * 7.1B spec. Escape/backdrop-close and the body-scroll lock are unchanged
+ * from 7.1A.
  */
-export function MobileNav({ orgName, role, orgSlug, sections, switcher }: MobileNavProps) {
+export function MobileNav({ orgName, role, email, orgSlug, sections, switcher }: MobileNavProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -57,9 +67,9 @@ export function MobileNav({ orgName, role, orgSlug, sections, switcher }: Mobile
         <div className="dash-drawer-overlay" onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
           <div className="dash-drawer" role="dialog" aria-modal="true" aria-label="Navigation">
             <div className="dash-drawer-head">
-              <div className="dash-brand" style={{ padding: 0 }}>
-                {orgName}
-                <small>{role}</small>
+              <div className="dash-drawer-workspace">
+                <div className="dash-workspace-name">{orgName}</div>
+                <div className="dash-workspace-sub">SEO Workspace</div>
               </div>
               <button type="button" className="dash-drawer-close" aria-label="Close navigation" onClick={() => setOpen(false)}>
                 &times;
@@ -89,11 +99,30 @@ export function MobileNav({ orgName, role, orgSlug, sections, switcher }: Mobile
                 {section.label && <div className="dash-nav-section">{section.label}</div>}
                 {section.items.map((item) => (
                   <Link key={item.href} href={`/dashboard/${orgSlug}${item.href}`} className="dash-nav-link" onClick={() => setOpen(false)}>
+                    {item.icon && <span className="icon">{item.icon}</span>}
                     {item.label}
+                    {typeof item.count === "number" && item.count > 0 && <span className="count">{item.count}</span>}
                   </Link>
                 ))}
               </div>
             ))}
+
+            <div className="dash-drawer-footer">
+              <div className="dash-footer-identity" style={{ padding: "8px" }}>
+                <span className="dash-avatar" aria-hidden="true">
+                  {email.slice(0, 2)}
+                </span>
+                <div className="dash-footer-identity-text">
+                  <div className="dash-footer-identity-name">{email}</div>
+                  <div className="dash-footer-identity-role">{role}</div>
+                </div>
+              </div>
+              <form action={signOutAction}>
+                <SubmitButton variant="ghost" pendingLabel="Signing out…" style={{ width: "100%", justifyContent: "flex-start" }}>
+                  Sign out
+                </SubmitButton>
+              </form>
+            </div>
           </div>
         </div>
       )}

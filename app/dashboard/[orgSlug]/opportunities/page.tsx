@@ -67,9 +67,10 @@ export default async function OpportunitiesPage({ params }: { params: Promise<{ 
               <p className="dash-muted" style={{ fontSize: "0.88rem" }}>
                 {o.description}
               </p>
-              <p style={{ fontSize: "0.85rem" }}>
-                <strong>Why this matters:</strong> {o.rationale}
-              </p>
+              <details style={{ fontSize: "0.85rem", marginBottom: 4 }}>
+                <summary style={{ cursor: "pointer", color: "var(--dash-text-muted)", fontWeight: 600 }}>Why this matters</summary>
+                <p style={{ marginTop: 6 }}>{o.rationale}</p>
+              </details>
               {canAct && (
                 <ActionGroup>
                   <div className="dash-row" style={{ display: "flex", gap: 8, marginTop: 12 }}>
