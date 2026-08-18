@@ -9,6 +9,12 @@ import { toPublicConnection } from "@/lib/publishing/connection-view";
 import { availableContentActions } from "@/lib/content/state-machine";
 import { canApproveContent, canEditContent, canPreparePublication, canPublishToProduction } from "@/lib/auth/permissions";
 import { generateContentAction, reviseContentAction, approveContentDashboardAction, rejectContentDashboardAction, preparePublicationAction, approveProductionMergeAction } from "@/app/dashboard/actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
+import { ConfirmSubmitButton } from "@/app/dashboard/_components/ConfirmSubmitButton";
+import { ActionGroup } from "@/app/dashboard/_components/ActionGroup";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
+import { PublicationStepper } from "@/app/dashboard/_components/PublicationStepper";
+import { contentStatusLabel } from "@/lib/dashboard/status-labels";
 import type { ContentBrief } from "@/lib/content/brief-types";
 
 export const dynamic = "force-dynamic";
@@ -52,48 +58,56 @@ export default async function ContentBriefDashboardPage({ params }: { params: Pr
         {briefRow.content_type === "CREATE_NEW_PAGE" ? "New page" : "Page update"} &middot; target: {briefRow.target_url ?? "not yet resolved"}
       </p>
 
-      <div className="dash-card" style={{ marginBottom: 20 }}>
+      <div className="dash-card action" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span className={`dash-badge ${latestJob?.status === "APPROVED" ? "success" : "info"}`}>{latestJob?.status.replace(/_/g, " ") ?? "Not started"}</span>
-          {latestQa && <span className={`dash-badge ${latestQa.passed ? "success" : "danger"}`}>QA {latestQa.passed ? "passed" : "failed"} ({latestQa.score})</span>}
+          <span className={`dash-badge ${latestJob?.status === "APPROVED" ? "success" : "info"}`}>{latestJob ? contentStatusLabel(latestJob.status) : "Not started"}</span>
+          {latestQa && <span className={`dash-badge ${latestQa.passed ? "success" : "danger"}`}>Quality check {latestQa.passed ? "passed" : "failed"}</span>}
         </div>
-        <div className="dash-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {canGenerate && (
-            <form action={generateContentAction}>
-              <input type="hidden" name="org_slug" value={orgSlug} />
-              <input type="hidden" name="content_brief_id" value={briefRow.id} />
-              <button className="dash-btn secondary" type="submit">
-                {latestJob ? "Generate new attempt" : "Generate content"}
-              </button>
-            </form>
-          )}
-          {latestJob && canReview && (
-            <>
-              <form action={approveContentDashboardAction}>
+        <ActionGroup>
+          <div className="dash-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canGenerate && (
+              <form action={generateContentAction}>
                 <input type="hidden" name="org_slug" value={orgSlug} />
-                <input type="hidden" name="content_job_id" value={latestJob.id} />
-                <button className="dash-btn" type="submit" disabled={!actions.canApprove}>
-                  Approve
-                </button>
+                <input type="hidden" name="content_brief_id" value={briefRow.id} />
+                <SubmitButton variant="secondary" pendingLabel="Generating…">
+                  {latestJob ? "Generate new attempt" : "Generate content"}
+                </SubmitButton>
               </form>
-              <form action={rejectContentDashboardAction}>
-                <input type="hidden" name="org_slug" value={orgSlug} />
-                <input type="hidden" name="content_job_id" value={latestJob.id} />
-                <button className="dash-btn secondary" type="submit" disabled={!actions.canReject}>
-                  Reject
-                </button>
-              </form>
-            </>
-          )}
-        </div>
+            )}
+            {latestJob && canReview && (
+              <>
+                <form action={approveContentDashboardAction}>
+                  <input type="hidden" name="org_slug" value={orgSlug} />
+                  <input type="hidden" name="content_job_id" value={latestJob.id} />
+                  <SubmitButton variant="primary" disabled={!actions.canApprove} pendingLabel="Approving…">
+                    Approve
+                  </SubmitButton>
+                </form>
+                <form action={rejectContentDashboardAction}>
+                  <input type="hidden" name="org_slug" value={orgSlug} />
+                  <input type="hidden" name="content_job_id" value={latestJob.id} />
+                  <ConfirmSubmitButton
+                    variant="danger-outline"
+                    disabled={!actions.canReject}
+                    confirmTitle="Reject this draft?"
+                    confirmDescription="It will be marked rejected and won't be eligible for publishing. You can always generate a new attempt afterwards."
+                    confirmLabel="Reject draft"
+                  >
+                    Reject
+                  </ConfirmSubmitButton>
+                </form>
+              </>
+            )}
+          </div>
+        </ActionGroup>
         {latestJob && canRevise && (
           <form action={reviseContentAction} style={{ marginTop: 12, display: "flex", gap: 8 }}>
             <input type="hidden" name="org_slug" value={orgSlug} />
             <input type="hidden" name="content_job_id" value={latestJob.id} />
             <input type="text" name="additional_instructions" placeholder="Optional: what should change?" style={{ flex: 1 }} />
-            <button className="dash-btn secondary" type="submit">
+            <SubmitButton variant="secondary" pendingLabel="Requesting…">
               Request changes
-            </button>
+            </SubmitButton>
           </form>
         )}
       </div>
@@ -123,61 +137,62 @@ export default async function ContentBriefDashboardPage({ params }: { params: Pr
         </div>
       )}
 
-      {!latestVersion && <p className="dash-empty">No draft generated yet.</p>}
+      {!latestVersion && <EmptyState title="No draft generated yet" description="Generate content above once you're ready to see a draft for this page." />}
 
-      <div className="dash-card">
+      <div className="dash-card action">
         <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Publishing</h2>
         {!connection && <p className="dash-muted">No publishing connection configured — see Settings.</p>}
         {connection && latestVersion && (
           <>
+            {publication ? (
+              <div style={{ marginBottom: 10 }}>
+                <PublicationStepper status={publication.status} />
+              </div>
+            ) : (
+              <p className="dash-muted" style={{ fontSize: "0.85rem" }}>Not yet prepared for publishing.</p>
+            )}
             <p className="dash-muted" style={{ fontSize: "0.85rem" }}>
-              {publication ? (
-                <>
-                  Status: <span className="dash-badge">{publication.status.replace(/_/g, " ")}</span>
-                  {publication.pull_request_url && (
-                    <>
-                      {" "}
-                      &middot; <a href={publication.pull_request_url} target="_blank" rel="noreferrer">View pull request &rarr;</a>
-                    </>
-                  )}
-                  {publication.preview_url && (
-                    <>
-                      {" "}
-                      &middot; <a href={publication.preview_url} target="_blank" rel="noreferrer">View preview &rarr;</a>
-                    </>
-                  )}
-                  {publication.target_url && publication.status === "PUBLISHED" && (
-                    <>
-                      {" "}
-                      &middot; <a href={publication.target_url} target="_blank" rel="noreferrer">View live page &rarr;</a>
-                    </>
-                  )}
-                </>
-              ) : (
-                "Not yet prepared for publishing."
+              {publication?.pull_request_url && (
+                <a href={publication.pull_request_url} target="_blank" rel="noreferrer">Review changes &rarr;</a>
+              )}
+              {publication?.pull_request_url && publication?.preview_url && " · "}
+              {publication?.preview_url && (
+                <a href={publication.preview_url} target="_blank" rel="noreferrer">Preview site &rarr;</a>
+              )}
+              {(publication?.pull_request_url || publication?.preview_url) && publication?.target_url && publication?.status === "PUBLISHED" && " · "}
+              {publication?.target_url && publication?.status === "PUBLISHED" && (
+                <a href={publication.target_url} target="_blank" rel="noreferrer">View live page &rarr;</a>
               )}
             </p>
             {publication?.error && <div className="dash-notice danger">{publication.error}</div>}
-            <div className="dash-row" style={{ display: "flex", gap: 8 }}>
-              {canPreparePublication(membership.role) && (
-                <form action={preparePublicationAction}>
-                  <input type="hidden" name="org_slug" value={orgSlug} />
-                  <input type="hidden" name="content_version_id" value={latestVersion.id} />
-                  <button className="dash-btn secondary" type="submit" disabled={!canPublishNow}>
-                    {publication?.status === "FAILED" ? "Retry: Prepare publication" : "Prepare publication"}
-                  </button>
-                </form>
-              )}
-              {canPublishToProduction(membership.role) && (
-                <form action={approveProductionMergeAction}>
-                  <input type="hidden" name="org_slug" value={orgSlug} />
-                  <input type="hidden" name="content_version_id" value={latestVersion.id} />
-                  <button className="dash-btn" type="submit" disabled={!canPublishNow || (connection.provider === "github" && !publication?.pull_request_number)}>
-                    Approve &amp; publish to production
-                  </button>
-                </form>
-              )}
-            </div>
+            <ActionGroup>
+              <div className="dash-row" style={{ display: "flex", gap: 8 }}>
+                {canPreparePublication(membership.role) && (
+                  <form action={preparePublicationAction}>
+                    <input type="hidden" name="org_slug" value={orgSlug} />
+                    <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                    <SubmitButton variant="secondary" disabled={!canPublishNow} pendingLabel="Preparing…">
+                      {publication?.status === "FAILED" ? "Retry: Prepare publication" : "Prepare publication"}
+                    </SubmitButton>
+                  </form>
+                )}
+                {canPublishToProduction(membership.role) && (
+                  <form action={approveProductionMergeAction}>
+                    <input type="hidden" name="org_slug" value={orgSlug} />
+                    <input type="hidden" name="content_version_id" value={latestVersion.id} />
+                    <ConfirmSubmitButton
+                      variant="primary"
+                      disabled={!canPublishNow || (connection.provider === "github" && !publication?.pull_request_number)}
+                      confirmTitle="Publish this page to production?"
+                      confirmDescription="This will make the website live for visitors — this is the one action in the portal that does. There's no undo button here; unpublishing afterwards is a separate, deliberate step."
+                      confirmLabel="Publish to production"
+                    >
+                      Approve &amp; publish to production
+                    </ConfirmSubmitButton>
+                  </form>
+                )}
+              </div>
+            </ActionGroup>
             <p className="dash-muted" style={{ fontSize: "0.78rem", marginTop: 8 }}>
               &quot;Prepare publication&quot; never makes the page public — it opens a preview for you to review. &quot;Approve &amp; publish&quot; is the only action that makes it live.
             </p>

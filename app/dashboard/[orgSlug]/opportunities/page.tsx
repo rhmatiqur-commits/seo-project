@@ -3,6 +3,9 @@ import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listOpportunitiesForWebsite } from "@/lib/db/opportunities";
 import { canManageSeoWork } from "@/lib/auth/permissions";
 import { acceptOpportunityAction, dismissOpportunityAction } from "@/app/dashboard/actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
+import { ActionGroup } from "@/app/dashboard/_components/ActionGroup";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -42,43 +45,51 @@ export default async function OpportunitiesPage({ params }: { params: Promise<{ 
       <h1 className="dash-page-title">Opportunities</h1>
       <p className="dash-page-subtitle">Recommendations for growing your organic search performance.</p>
 
-      {open.length === 0 && <p className="dash-empty">No new opportunities right now — check back after your next SEO analysis.</p>}
+      {open.length === 0 && (
+        <EmptyState
+          title="No new opportunities right now"
+          description="We check for new opportunities on a regular schedule — check back after your next SEO analysis."
+        />
+      )}
 
       <div className="dash-grid" style={{ marginBottom: 28 }}>
         {open.map((o) => {
           const impact = impactLabel(o.priority_score);
           return (
-            <div key={o.id} className="dash-card">
+            <div key={o.id} className={`dash-card${canAct ? " action" : ""}`}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                 <div>
                   <span className={`dash-badge ${impact.tone}`}>{impact.label}</span>{" "}
-                  <span className="dash-badge">{TYPE_LABELS[o.type] ?? o.type}</span>
+                  <span className="dash-badge neutral">{TYPE_LABELS[o.type] ?? o.type}</span>
                   <h3 style={{ margin: "8px 0 4px" }}>{o.title}</h3>
                 </div>
               </div>
               <p className="dash-muted" style={{ fontSize: "0.88rem" }}>
                 {o.description}
               </p>
-              <p style={{ fontSize: "0.85rem" }}>
-                <strong>Why this matters:</strong> {o.rationale}
-              </p>
+              <details style={{ fontSize: "0.85rem", marginBottom: 4 }}>
+                <summary style={{ cursor: "pointer", color: "var(--dash-text-muted)", fontWeight: 600 }}>Why this matters</summary>
+                <p style={{ marginTop: 6 }}>{o.rationale}</p>
+              </details>
               {canAct && (
-                <div className="dash-row" style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <form action={acceptOpportunityAction}>
-                    <input type="hidden" name="org_slug" value={orgSlug} />
-                    <input type="hidden" name="opportunity_id" value={o.id} />
-                    <button className="dash-btn" type="submit">
-                      Accept &amp; create task
-                    </button>
-                  </form>
-                  <form action={dismissOpportunityAction}>
-                    <input type="hidden" name="org_slug" value={orgSlug} />
-                    <input type="hidden" name="opportunity_id" value={o.id} />
-                    <button className="dash-btn secondary" type="submit">
-                      Dismiss
-                    </button>
-                  </form>
-                </div>
+                <ActionGroup>
+                  <div className="dash-row" style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <form action={acceptOpportunityAction}>
+                      <input type="hidden" name="org_slug" value={orgSlug} />
+                      <input type="hidden" name="opportunity_id" value={o.id} />
+                      <SubmitButton variant="primary" pendingLabel="Accepting…">
+                        Accept &amp; create task
+                      </SubmitButton>
+                    </form>
+                    <form action={dismissOpportunityAction}>
+                      <input type="hidden" name="org_slug" value={orgSlug} />
+                      <input type="hidden" name="opportunity_id" value={o.id} />
+                      <SubmitButton variant="ghost" pendingLabel="Dismissing…">
+                        Dismiss
+                      </SubmitButton>
+                    </form>
+                  </div>
+                </ActionGroup>
               )}
             </div>
           );

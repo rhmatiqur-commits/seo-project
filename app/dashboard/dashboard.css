@@ -3,134 +3,574 @@
    UI"). Plain CSS, no framework/build step, same zero-dependency philosophy
    as the rest of this project — just a more considered one, since this is
    the surface real clients see. Scoped to /dashboard/** only (imported by
-   app/dashboard/layout.tsx, never by app/layout.tsx). */
+   app/dashboard/layout.tsx, never by app/layout.tsx).
+
+   Phase 7.1A rewrites this file's *tokens* (type scale, spacing scale,
+   colour roles, elevation, motion) and adds the shared primitives the UI/UX
+   audit called for (interactive cards, stat tiles, action panels, a
+   responsive table pattern, a mobile nav drawer, focus rings, skeletons,
+   dialogs). It does not change what any individual page shows — see the
+   Phase 7.1A completion report for exactly which files adopted which
+   primitive and which were left untouched for a later pass. */
 
 .dash {
+  /* ---- Colour: light (default) ---- */
   --dash-bg: #f7f8fb;
   --dash-surface: #ffffff;
   --dash-border: #e5e7eb;
+  --dash-border-strong: #d6d9e0;
+  --dash-text: #14151a;
+  --dash-text-muted: #6b7280;
+  --dash-text-faint: #9ca3af;
+
+  /* Brand — reserved for primary actions, links, the active nav item and
+     focus rings. Never used for a status badge (see --dash-info below). */
+  --dash-primary: #4338ca;
+  --dash-primary-hover: #3730a3;
+  --dash-primary-soft: #eef2ff;
+  --dash-primary-ink: #3730a3;
+
+  /* Status/semantic colours — independent of brand, so "this is the active
+     page" and "this hasn't happened yet" never look identical. */
+  --dash-info: #0369a1;
+  --dash-info-soft: #f0f9ff;
+  --dash-good: #059669;
+  --dash-good-soft: #ecfdf5;
+  --dash-warning: #b45309;
+  --dash-warning-soft: #fffbeb;
+  --dash-danger: #dc2626;
+  --dash-danger-soft: #fef2f2;
+  --dash-neutral: #64748b;
+  --dash-neutral-soft: #f1f5f9;
+
+  --dash-focus-ring: #4338ca;
+
+  /* ---- Elevation ---- */
+  --dash-shadow-rest: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --dash-shadow-hover: 0 4px 12px rgba(16, 24, 40, 0.08);
+  --dash-shadow-raised: 0 12px 32px rgba(16, 24, 40, 0.16);
+
+  /* ---- Radius ---- */
+  --dash-radius: 10px;
+  --dash-radius-sm: 6px;
+  --dash-radius-xs: 4px;
+
+  /* ---- Spacing scale (4px base grid) ---- */
+  --dash-space-1: 4px;
+  --dash-space-2: 8px;
+  --dash-space-3: 12px;
+  --dash-space-4: 16px;
+  --dash-space-5: 24px;
+  --dash-space-6: 32px;
+  --dash-space-7: 48px;
+  --dash-space-8: 64px;
+
+  /* ---- Type scale ---- */
+  --dash-text-xs: 12px;
+  --dash-text-xs-lh: 16px;
+  --dash-text-sm: 13px;
+  --dash-text-sm-lh: 20px;
+  --dash-text-base: 14px;
+  --dash-text-base-lh: 22px;
+  --dash-text-md: 16px;
+  --dash-text-md-lh: 24px;
+  --dash-text-lg: 20px;
+  --dash-text-lg-lh: 26px;
+  --dash-text-xl: 26px;
+  --dash-text-xl-lh: 32px;
+  --dash-text-2xl: 34px;
+  --dash-text-2xl-lh: 40px;
+
+  --dash-motion: 150ms ease-out;
+  --dash-sidebar-w: 232px;
+  --dash-drawer-w: min(300px, 84vw);
+
+  font-family: var(--font-inter), -apple-system, "Segoe UI", system-ui, sans-serif;
+  color: var(--dash-text);
+  background: var(--dash-bg);
+  min-height: 100vh;
+  font-size: var(--dash-text-base);
+  line-height: var(--dash-text-base-lh);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Colour: dark (system preference), then explicit theme overrides ---- */
+@media (prefers-color-scheme: dark) {
+  .dash {
+    --dash-bg: #121317;
+    --dash-surface: #191a20;
+    --dash-border: #2a2c34;
+    --dash-border-strong: #383b46;
+    --dash-text: #eceef2;
+    --dash-text-muted: #a0a4b3;
+    --dash-text-faint: #6d717f;
+
+    --dash-primary: #8b83f0;
+    --dash-primary-hover: #a39dfa;
+    --dash-primary-soft: #23234a;
+    --dash-primary-ink: #c7c2fb;
+
+    --dash-info: #38bdf8;
+    --dash-info-soft: #10222c;
+    --dash-good: #34d399;
+    --dash-good-soft: #0c2420;
+    --dash-warning: #f5a524;
+    --dash-warning-soft: #2b2210;
+    --dash-danger: #f87171;
+    --dash-danger-soft: #2c1618;
+    --dash-neutral: #94a3b8;
+    --dash-neutral-soft: #1d2029;
+
+    --dash-focus-ring: #a39dfa;
+
+    --dash-shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --dash-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --dash-shadow-raised: 0 16px 40px rgba(0, 0, 0, 0.6);
+  }
+}
+:root[data-theme="dark"] .dash {
+  --dash-bg: #121317;
+  --dash-surface: #191a20;
+  --dash-border: #2a2c34;
+  --dash-border-strong: #383b46;
+  --dash-text: #eceef2;
+  --dash-text-muted: #a0a4b3;
+  --dash-text-faint: #6d717f;
+  --dash-primary: #8b83f0;
+  --dash-primary-hover: #a39dfa;
+  --dash-primary-soft: #23234a;
+  --dash-primary-ink: #c7c2fb;
+  --dash-info: #38bdf8;
+  --dash-info-soft: #10222c;
+  --dash-good: #34d399;
+  --dash-good-soft: #0c2420;
+  --dash-warning: #f5a524;
+  --dash-warning-soft: #2b2210;
+  --dash-danger: #f87171;
+  --dash-danger-soft: #2c1618;
+  --dash-neutral: #94a3b8;
+  --dash-neutral-soft: #1d2029;
+  --dash-focus-ring: #a39dfa;
+  --dash-shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --dash-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --dash-shadow-raised: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+:root[data-theme="light"] .dash {
+  --dash-bg: #f7f8fb;
+  --dash-surface: #ffffff;
+  --dash-border: #e5e7eb;
+  --dash-border-strong: #d6d9e0;
   --dash-text: #14151a;
   --dash-text-muted: #6b7280;
   --dash-text-faint: #9ca3af;
   --dash-primary: #4338ca;
   --dash-primary-hover: #3730a3;
   --dash-primary-soft: #eef2ff;
-  --dash-success: #059669;
-  --dash-success-soft: #ecfdf5;
+  --dash-primary-ink: #3730a3;
+  --dash-info: #0369a1;
+  --dash-info-soft: #f0f9ff;
+  --dash-good: #059669;
+  --dash-good-soft: #ecfdf5;
   --dash-warning: #b45309;
   --dash-warning-soft: #fffbeb;
   --dash-danger: #dc2626;
   --dash-danger-soft: #fef2f2;
-  --dash-radius: 10px;
-  --dash-radius-sm: 6px;
-  --dash-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --dash-sidebar-w: 232px;
-
-  font-family: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
-  color: var(--dash-text);
-  background: var(--dash-bg);
-  min-height: 100vh;
+  --dash-neutral: #64748b;
+  --dash-neutral-soft: #f1f5f9;
+  --dash-focus-ring: #4338ca;
+  --dash-shadow-rest: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --dash-shadow-hover: 0 4px 12px rgba(16, 24, 40, 0.08);
+  --dash-shadow-raised: 0 12px 32px rgba(16, 24, 40, 0.16);
 }
+
 .dash * { box-sizing: border-box; }
 .dash a { color: var(--dash-primary); text-decoration: none; }
 .dash a:hover { text-decoration: underline; }
 
-/* --- Shell layout: fixed sidebar + scrollable content --- */
+/* Consistent, visible keyboard focus everywhere — never rely on the browser
+   default alone. Deliberately keyed off :focus-visible (not :focus) so a
+   mouse click doesn't draw a ring, only keyboard/AT navigation does. */
+.dash a:focus-visible,
+.dash button:focus-visible,
+.dash input:focus-visible,
+.dash select:focus-visible,
+.dash textarea:focus-visible,
+.dash [tabindex]:focus-visible {
+  outline: 2px solid var(--dash-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--dash-radius-xs);
+}
+
+/* ---- Shell layout: fixed sidebar + scrollable content --- */
 .dash-shell { display: flex; min-height: 100vh; }
 .dash-sidebar {
   width: var(--dash-sidebar-w);
   flex-shrink: 0;
   background: var(--dash-surface);
   border-right: 1px solid var(--dash-border);
-  padding: 20px 14px;
+  padding: var(--dash-space-4) var(--dash-space-3);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
-.dash-brand { font-weight: 700; font-size: 1.05rem; padding: 6px 10px 18px; color: var(--dash-text); }
-.dash-brand small { display: block; font-weight: 500; font-size: 0.75rem; color: var(--dash-text-muted); margin-top: 2px; }
+.dash-brand { font-weight: 700; font-size: var(--dash-text-md); padding: var(--dash-space-2) var(--dash-space-2) var(--dash-space-5); color: var(--dash-text); }
+.dash-brand small { display: block; font-weight: 500; font-size: var(--dash-text-xs); color: var(--dash-text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ---- Workspace switcher (pinned at the top of the sidebar) ---- */
+.dash-workspace-switcher { position: relative; margin-bottom: var(--dash-space-3); }
+.dash-workspace-switcher.static { padding: var(--dash-space-2); }
+.dash-workspace-switcher summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: var(--dash-space-2); border-radius: var(--dash-radius-sm); cursor: pointer; list-style: none;
+}
+.dash-workspace-switcher summary::-webkit-details-marker { display: none; }
+.dash-workspace-switcher summary:hover { background: var(--dash-neutral-soft); }
+.dash-workspace-name { font-weight: 700; font-size: var(--dash-text-base); color: var(--dash-text); line-height: 1.25; }
+.dash-workspace-sub { font-size: var(--dash-text-xs); color: var(--dash-text-faint); margin-top: 1px; }
+.dash-workspace-chevron { flex-shrink: 0; color: var(--dash-text-faint); }
+.dash-workspace-switcher[open] .dash-workspace-chevron { transform: rotate(180deg); }
+.dash-workspace-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  background: var(--dash-surface); border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm);
+  box-shadow: var(--dash-shadow-raised); padding: 6px; max-height: 260px; overflow-y: auto;
+}
+
 .dash-nav-link {
   display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px; border-radius: var(--dash-radius-sm);
-  color: var(--dash-text-muted); font-size: 0.89rem; font-weight: 500;
+  padding: 8px var(--dash-space-2); border-radius: var(--dash-radius-sm);
+  color: var(--dash-text-muted); font-size: var(--dash-text-sm); font-weight: 500;
+}
+.dash-nav-link .icon { flex-shrink: 0; width: 16px; height: 16px; opacity: 0.85; }
+.dash-nav-link .count {
+  margin-left: auto; font-size: 11px; font-weight: 700; line-height: 1;
+  background: var(--dash-primary-soft); color: var(--dash-primary-ink);
+  border-radius: 999px; padding: 2px 7px;
 }
 .dash-nav-link:hover { background: var(--dash-primary-soft); color: var(--dash-primary); text-decoration: none; }
 .dash-nav-link.active { background: var(--dash-primary-soft); color: var(--dash-primary); }
-.dash-nav-section { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dash-text-faint); padding: 16px 10px 4px; }
+.dash-nav-link.active .count { background: var(--dash-surface); }
+.dash-nav-section { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dash-text-faint); padding: var(--dash-space-3) var(--dash-space-2) 4px; }
+.dash-nav-section:first-of-type { padding-top: var(--dash-space-1); }
+
+/* ---- Sidebar footer: user identity, pinned to the bottom via the
+   sidebar's own flex-column + margin-top:auto (no extra wrapper needed). ---- */
+.dash-sidebar-footer { margin-top: auto; padding-top: var(--dash-space-2); border-top: 1px solid var(--dash-border); }
+.dash-avatar {
+  width: 28px; height: 28px; border-radius: 999px; flex-shrink: 0;
+  background: var(--dash-primary-soft); color: var(--dash-primary-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+}
+.dash-footer-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dash-footer-identity-text { min-width: 0; overflow: hidden; }
+.dash-footer-identity-name { font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-footer-identity-role { font-size: 11px; color: var(--dash-text-faint); text-transform: uppercase; letter-spacing: 0.03em; }
+
 .dash-content { flex: 1; min-width: 0; }
 .dash-topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 28px; background: var(--dash-surface); border-bottom: 1px solid var(--dash-border);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--dash-space-3);
+  padding: var(--dash-space-3) var(--dash-space-6); background: var(--dash-surface); border-bottom: 1px solid var(--dash-border);
   position: sticky; top: 0; z-index: 5;
 }
-.dash-main { padding: 28px; max-width: 1180px; }
-.dash-page-title { font-size: 1.4rem; font-weight: 700; margin: 0 0 4px; }
-.dash-page-subtitle { color: var(--dash-text-muted); font-size: 0.92rem; margin: 0 0 24px; }
+.dash-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: var(--dash-text-sm); color: var(--dash-text-faint); min-width: 0; overflow: hidden; }
+.dash-breadcrumb .sep { color: var(--dash-text-faint); }
+.dash-breadcrumb .current { color: var(--dash-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-topbar-right { display: flex; align-items: center; gap: var(--dash-space-3); flex-shrink: 0; }
 
-/* --- Primitives --- */
+/* ---- Account menu (topbar avatar / sidebar footer) — native <details>,
+   opening downward from the topbar, upward from the sidebar footer. ---- */
+.dash-account-menu { position: relative; }
+.dash-account-menu summary { cursor: pointer; list-style: none; }
+.dash-account-menu summary::-webkit-details-marker { display: none; }
+.dash-account-menu-panel {
+  position: absolute; right: 0; z-index: 20; width: 220px;
+  background: var(--dash-surface); border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm);
+  box-shadow: var(--dash-shadow-raised); padding: 6px;
+}
+.dash-account-menu.align-down .dash-account-menu-panel { top: calc(100% + 6px); }
+.dash-account-menu.align-up .dash-account-menu-panel { bottom: calc(100% + 6px); left: 0; right: auto; width: 100%; }
+.dash-account-menu-identity { padding: 8px 10px 10px; border-bottom: 1px solid var(--dash-border); margin-bottom: 4px; }
+.dash-account-menu-item {
+  display: block; padding: 8px 10px; border-radius: var(--dash-radius-xs);
+  font-size: var(--dash-text-sm); color: var(--dash-text); font-weight: 500;
+}
+.dash-account-menu-item:hover { background: var(--dash-neutral-soft); text-decoration: none; }
+.dash-topbar-avatar-trigger { display: flex; align-items: center; gap: 4px; }
+.dash-main { padding: var(--dash-space-6); max-width: 1180px; }
+.dash-page-title { font-size: var(--dash-text-xl); line-height: var(--dash-text-xl-lh); font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+.dash-page-subtitle { color: var(--dash-text-muted); font-size: var(--dash-text-base); margin: 0 0 var(--dash-space-5); }
+
+/* ---- Hamburger (mobile only — see @media block below) ---- */
+.dash-hamburger {
+  display: none; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: var(--dash-radius-sm);
+  border: 1px solid var(--dash-border); background: var(--dash-surface); color: var(--dash-text);
+  cursor: pointer; flex-shrink: 0;
+}
+.dash-hamburger:hover { background: var(--dash-primary-soft); }
+
+/* ---- Mobile nav drawer ---- */
+.dash-drawer-overlay {
+  position: fixed; inset: 0; background: rgba(15, 16, 20, 0.5);
+  z-index: 40; display: flex;
+}
+.dash-drawer {
+  width: var(--dash-drawer-w); height: 100%; background: var(--dash-surface);
+  box-shadow: var(--dash-shadow-raised); padding: var(--dash-space-4) var(--dash-space-3);
+  display: flex; flex-direction: column; gap: var(--dash-space-1); overflow-y: auto;
+}
+.dash-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 0 var(--dash-space-2) var(--dash-space-3); }
+.dash-drawer-close {
+  border: none; background: transparent; color: var(--dash-text-muted); font-size: 20px; line-height: 1;
+  cursor: pointer; padding: 4px 8px; border-radius: var(--dash-radius-xs);
+}
+.dash-drawer-close:hover { background: var(--dash-neutral-soft); }
+.dash-drawer-workspace { padding: var(--dash-space-2); margin-bottom: var(--dash-space-2); }
+.dash-drawer-footer { margin-top: auto; padding-top: var(--dash-space-3); border-top: 1px solid var(--dash-border); display: flex; flex-direction: column; gap: 2px; }
+
+/* ---- Primitives: cards with distinct roles, not one grey box ---- */
 .dash-card {
   background: var(--dash-surface); border: 1px solid var(--dash-border);
-  border-radius: var(--dash-radius); box-shadow: var(--dash-shadow); padding: 20px;
+  border-radius: var(--dash-radius); box-shadow: var(--dash-shadow-rest); padding: var(--dash-space-5);
 }
-.dash-grid { display: grid; gap: 16px; }
+
+/* Stat tile — number-forward, quieter than a content card: no border, a
+   hairline top accent instead, so a metric never competes visually with a
+   form or a list. */
+.dash-card.stat {
+  border: none; border-top: 2px solid var(--dash-border-strong);
+  border-radius: var(--dash-radius-sm); box-shadow: none; background: transparent;
+  padding: var(--dash-space-4) var(--dash-space-1) var(--dash-space-2);
+}
+
+/* Action panel — a card whose job is to ask for a decision (approve/accept/
+   connect), not just display something. A quiet left accent bar says "act
+   here" without shouting. */
+.dash-card.action { border-left: 3px solid var(--dash-primary); }
+
+/* Interactive card — anything wrapped in a Link/anchor. Must look and feel
+   clickable, which the plain .dash-card never communicated on its own. */
+.dash-card.interactive { cursor: pointer; }
+@media (prefers-reduced-motion: no-preference) {
+  .dash-card.interactive { transition: box-shadow var(--dash-motion), transform var(--dash-motion), border-color var(--dash-motion); }
+  .dash-card.interactive:hover { box-shadow: var(--dash-shadow-hover); transform: translateY(-2px); border-color: var(--dash-border-strong); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-card.interactive:hover { box-shadow: var(--dash-shadow-hover); }
+}
+.dash-card.interactive .chevron { color: var(--dash-text-faint); }
+.dash-card.interactive.selected { border: 1px solid var(--dash-primary); box-shadow: 0 0 0 1px var(--dash-primary) inset; }
+.dash-card.stat.interactive.selected { border-top-color: var(--dash-primary); }
+
+.dash-grid { display: grid; gap: var(--dash-space-4); }
 .dash-grid-cols-2 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .dash-grid-cols-3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .dash-grid-cols-4 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-.dash-stat-label { font-size: 0.78rem; color: var(--dash-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-.dash-stat-value { font-size: 1.7rem; font-weight: 700; margin-top: 4px; }
-.dash-stat-delta { font-size: 0.82rem; margin-top: 4px; font-weight: 600; }
-.dash-stat-delta.up { color: var(--dash-success); }
+.dash-stat-label { font-size: var(--dash-text-xs); color: var(--dash-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.dash-stat-value { font-size: var(--dash-text-lg); line-height: var(--dash-text-lg-lh); font-weight: 700; margin-top: 4px; }
+.dash-stat-delta { font-size: var(--dash-text-sm); margin-top: 4px; font-weight: 600; }
+.dash-stat-delta.up { color: var(--dash-good); }
 .dash-stat-delta.down { color: var(--dash-danger); }
 .dash-stat-delta.flat { color: var(--dash-text-muted); }
 
+/* ---- Buttons: primary / secondary / ghost / danger, all sharing one
+   pending state (see SubmitButton / ConfirmSubmitButton) ---- */
 .dash-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 14px; border-radius: var(--dash-radius-sm); border: 1px solid transparent;
-  font-size: 0.86rem; font-weight: 600; cursor: pointer; background: var(--dash-primary); color: #fff;
+  font-size: var(--dash-text-sm); font-weight: 600; cursor: pointer; background: var(--dash-primary); color: #fff;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dash-btn { transition: background var(--dash-motion), border-color var(--dash-motion), opacity var(--dash-motion); }
 }
 .dash-btn:hover { background: var(--dash-primary-hover); text-decoration: none; }
-.dash-btn:disabled { background: #d1d5db; cursor: not-allowed; }
+.dash-btn:disabled { background: #d1d5db; color: #6b7280; cursor: not-allowed; }
 .dash-btn.secondary { background: var(--dash-surface); color: var(--dash-text); border-color: var(--dash-border); }
-.dash-btn.secondary:hover { background: #f3f4f6; }
+.dash-btn.secondary:hover { background: var(--dash-neutral-soft); }
+.dash-btn.secondary:disabled { background: var(--dash-surface); color: var(--dash-text-faint); border-color: var(--dash-border); }
+.dash-btn.ghost { background: transparent; color: var(--dash-text-muted); border-color: transparent; }
+.dash-btn.ghost:hover { background: var(--dash-neutral-soft); color: var(--dash-text); }
 .dash-btn.danger { background: var(--dash-danger); }
 .dash-btn.danger:hover { background: #b91c1c; }
+.dash-btn.danger.outline { background: transparent; color: var(--dash-danger); border-color: var(--dash-danger); }
+.dash-btn.danger.outline:hover { background: var(--dash-danger-soft); }
 
+/* Pending spinner (rendered by SubmitButton/ConfirmSubmitButton while the
+   Server Action is in flight). Static ring under reduced motion — still a
+   legible "this is disabled" cue without any decorative rotation. */
+.dash-spinner {
+  width: 14px; height: 14px; border-radius: 999px;
+  border: 2px solid currentColor; border-top-color: transparent; opacity: 0.9; flex-shrink: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dash-spinner { animation: dash-spin 0.6s linear infinite; }
+}
+@keyframes dash-spin { to { transform: rotate(360deg); } }
+
+/* ---- Badges: navigation state and information status never share a hue.
+   --dash-info (blue) replaces the old reuse of brand indigo. ---- */
 .dash-badge {
   display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px;
-  font-size: 0.75rem; font-weight: 600; background: #f3f4f6; color: var(--dash-text-muted);
+  font-size: var(--dash-text-xs); font-weight: 600; background: var(--dash-neutral-soft); color: var(--dash-neutral);
 }
-.dash-badge.success { background: var(--dash-success-soft); color: var(--dash-success); }
+.dash-badge.success { background: var(--dash-good-soft); color: var(--dash-good); }
 .dash-badge.warning { background: var(--dash-warning-soft); color: var(--dash-warning); }
 .dash-badge.danger { background: var(--dash-danger-soft); color: var(--dash-danger); }
-.dash-badge.info { background: var(--dash-primary-soft); color: var(--dash-primary); }
+.dash-badge.info { background: var(--dash-info-soft); color: var(--dash-info); }
+.dash-badge.neutral { background: var(--dash-neutral-soft); color: var(--dash-neutral); }
+.dash-badge.brand { background: var(--dash-primary-soft); color: var(--dash-primary-ink); }
 
-.dash-table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
-.dash-table th { text-align: left; padding: 10px 12px; color: var(--dash-text-muted); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--dash-border); }
-.dash-table td { padding: 12px; border-bottom: 1px solid var(--dash-border); vertical-align: top; }
+/* ---- Progress stepper (PublicationStepper) — a pipeline is a shape, not a
+   repeated colour. Compact enough to sit inline in a detail card. ---- */
+.dash-stepper { display: flex; align-items: center; gap: 0; flex-wrap: wrap; }
+.dash-stepper-step { display: flex; align-items: center; gap: 8px; }
+.dash-stepper-dot {
+  width: 10px; height: 10px; border-radius: 999px; background: var(--dash-border-strong); flex-shrink: 0;
+}
+.dash-stepper-step.done .dash-stepper-dot { background: var(--dash-good); }
+.dash-stepper-step.current .dash-stepper-dot { background: var(--dash-primary); box-shadow: 0 0 0 3px var(--dash-primary-soft); }
+.dash-stepper-step.failed .dash-stepper-dot { background: var(--dash-danger); }
+.dash-stepper-label { font-size: var(--dash-text-xs); font-weight: 600; color: var(--dash-text-faint); white-space: nowrap; }
+.dash-stepper-step.done .dash-stepper-label,
+.dash-stepper-step.current .dash-stepper-label { color: var(--dash-text); }
+.dash-stepper-step.failed .dash-stepper-label { color: var(--dash-danger); }
+.dash-stepper-connector { width: 20px; height: 1px; background: var(--dash-border-strong); margin: 0 6px; flex-shrink: 0; }
+.dash-stepper-step.done + .dash-stepper-connector { background: var(--dash-good); }
+
+/* ---- Tables ---- */
+.dash-table-wrap { overflow-x: auto; border-radius: var(--dash-radius); border: 1px solid var(--dash-border); background: var(--dash-surface); }
+.dash-table { width: 100%; border-collapse: collapse; font-size: var(--dash-text-sm); }
+.dash-table-wrap .dash-table { border: none; border-radius: 0; }
+.dash-table th { text-align: left; padding: 10px var(--dash-space-3); color: var(--dash-text-muted); font-weight: 600; font-size: var(--dash-text-xs); text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--dash-border); white-space: nowrap; }
+.dash-table td { padding: var(--dash-space-3); border-bottom: 1px solid var(--dash-border); vertical-align: top; }
 .dash-table tr:last-child td { border-bottom: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .dash-table tbody tr { transition: background var(--dash-motion); }
+}
+.dash-table tbody tr:hover { background: var(--dash-bg); }
 .dash-muted { color: var(--dash-text-muted); }
-.dash-empty { padding: 32px; text-align: center; color: var(--dash-text-muted); }
+.dash-empty { padding: var(--dash-space-6); text-align: center; color: var(--dash-text-muted); }
 
-.dash-form-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-.dash-field label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--dash-text-muted); margin-bottom: 5px; }
+/* Responsive table → stacked cards below 640px. Applied only to tables
+   marked .responsive (4+ meaningfully-different columns); each <td> needs a
+   data-label attribute, whose value the ::before pulls in as a run-in
+   label. No information is hidden, just re-flowed. */
+@media (max-width: 640px) {
+  .dash-table.responsive thead { display: none; }
+  .dash-table.responsive, .dash-table.responsive tbody { display: block; width: 100%; }
+  .dash-table.responsive tr {
+    display: block; border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm);
+    margin: var(--dash-space-3); padding: var(--dash-space-2) var(--dash-space-3);
+  }
+  .dash-table.responsive tr:first-child { margin-top: var(--dash-space-3); }
+  .dash-table.responsive td {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: var(--dash-space-3);
+    padding: 7px 0; border-bottom: 1px dashed var(--dash-border); text-align: right;
+  }
+  .dash-table.responsive td:last-child { border-bottom: none; }
+  .dash-table.responsive td::before {
+    content: attr(data-label); font-weight: 600; color: var(--dash-text-muted); text-align: left;
+    font-size: var(--dash-text-xs); text-transform: uppercase; letter-spacing: 0.03em; flex-shrink: 0; padding-top: 2px;
+  }
+}
+
+.dash-form-row { display: flex; flex-wrap: wrap; gap: var(--dash-space-3); align-items: flex-end; }
+.dash-field label { display: block; font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text-muted); margin-bottom: 5px; }
 .dash-field input, .dash-field select, .dash-field textarea {
-  padding: 8px 10px; border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm); font-size: 0.88rem; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--dash-border); border-radius: var(--dash-radius-sm); font-size: var(--dash-text-base); width: 100%;
+  background: var(--dash-surface); color: var(--dash-text);
 }
 .dash-notice {
-  background: var(--dash-primary-soft); border: 1px solid #c7d2fe; color: #3730a3;
-  border-radius: var(--dash-radius-sm); padding: 12px 14px; font-size: 0.85rem; margin-bottom: 20px;
+  background: var(--dash-primary-soft); border: 1px solid var(--dash-border-strong); color: var(--dash-primary-ink);
+  border-radius: var(--dash-radius-sm); padding: var(--dash-space-3) var(--dash-space-4); font-size: var(--dash-text-sm); margin-bottom: var(--dash-space-5);
 }
-.dash-notice.warning { background: var(--dash-warning-soft); border-color: #fde68a; color: var(--dash-warning); }
-.dash-notice.danger { background: var(--dash-danger-soft); border-color: #fecaca; color: var(--dash-danger); }
+.dash-notice.warning { background: var(--dash-warning-soft); border-color: var(--dash-warning); color: var(--dash-warning); }
+.dash-notice.danger { background: var(--dash-danger-soft); border-color: var(--dash-danger); color: var(--dash-danger); }
 
-.dash-auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+/* ---- Empty states — what's empty, why, what happens next; a small mark
+   instead of a bare sentence. ---- */
+.dash-empty-state { padding: var(--dash-space-7) var(--dash-space-4); text-align: center; }
+.dash-empty-state .mark {
+  width: 40px; height: 40px; margin: 0 auto var(--dash-space-3); border-radius: 999px;
+  background: var(--dash-neutral-soft); color: var(--dash-text-faint);
+  display: flex; align-items: center; justify-content: center;
+}
+.dash-empty-state h3 { font-size: var(--dash-text-md); margin: 0 0 4px; }
+.dash-empty-state p { color: var(--dash-text-muted); font-size: var(--dash-text-sm); max-width: 44ch; margin: 0 auto; }
+.dash-empty-state .cta { margin-top: var(--dash-space-4); }
+
+/* ---- Skeletons (loading.tsx) ---- */
+.dash-skel { background: var(--dash-border); border-radius: var(--dash-radius-xs); }
+@media (prefers-reduced-motion: no-preference) {
+  .dash-skel { animation: dash-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes dash-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.dash-skel-stat { height: 74px; border-radius: var(--dash-radius-sm); }
+.dash-skel-card { height: 120px; }
+.dash-skel-row { height: 16px; margin-bottom: 8px; }
+.dash-skel-row:last-child { margin-bottom: 0; }
+
+/* ---- Confirmation dialog (native <dialog>, styled to match) ---- */
+.dash-dialog {
+  border: none; border-radius: var(--dash-radius); box-shadow: var(--dash-shadow-raised);
+  padding: 0; width: min(420px, calc(100vw - 32px)); background: var(--dash-surface); color: var(--dash-text);
+}
+.dash-dialog::backdrop { background: rgba(15, 16, 20, 0.5); }
+.dash-dialog-body { padding: var(--dash-space-5); }
+.dash-dialog-body h3 { margin: 0 0 8px; font-size: var(--dash-text-md); }
+.dash-dialog-body p { margin: 0; color: var(--dash-text-muted); font-size: var(--dash-text-sm); }
+.dash-dialog-actions { display: flex; justify-content: flex-end; gap: var(--dash-space-2); padding: var(--dash-space-4) var(--dash-space-5); border-top: 1px solid var(--dash-border); }
+
+.dash-auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--dash-space-5); }
 .dash-auth-card { width: 100%; max-width: 380px; }
 
-/* --- Responsive: collapse the sidebar into a top bar below tablet width --- */
+/* ---- Page sections: whitespace + headings + hairline dividers instead of
+   nesting every group of content in another bordered .dash-card. ---- */
+.dash-section { margin-bottom: var(--dash-space-7); }
+.dash-section:last-child { margin-bottom: 0; }
+.dash-section-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dash-text-faint); margin: 0 0 var(--dash-space-3); }
+.dash-divider { border: none; border-top: 1px solid var(--dash-border); margin: var(--dash-space-6) 0; }
+.dash-list-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dash-space-3);
+  padding: var(--dash-space-3) 0; border-bottom: 1px solid var(--dash-border);
+}
+.dash-list-row:last-child { border-bottom: none; }
+.dash-list-row .primary { font-size: var(--dash-text-base); font-weight: 600; color: var(--dash-text); }
+.dash-list-row .secondary { font-size: var(--dash-text-sm); color: var(--dash-text-muted); margin-top: 2px; }
+.dash-subsection-heading { font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text-muted); margin: var(--dash-space-5) 0 var(--dash-space-2); }
+.dash-subsection-heading:first-child { margin-top: 0; }
+
+/* ---- Technical-details disclosure (Publishing page etc.) — a quiet
+   secondary reveal for provider-specific info the client doesn't need to
+   understand the workflow. ---- */
+.dash-tech-details summary { cursor: pointer; font-size: var(--dash-text-sm); font-weight: 600; color: var(--dash-text-muted); }
+.dash-tech-details summary:hover { color: var(--dash-text); }
+.dash-tech-details-body { margin-top: var(--dash-space-2); font-size: var(--dash-text-sm); color: var(--dash-text-muted); }
+
+/* ---- Workflow explainer (Publishing empty state) — a static, non-live
+   version of the stepper shape: describes the concept, never implies any
+   specific item has started moving through it. ---- */
+.dash-workflow-explainer { display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; margin-top: var(--dash-space-4); }
+.dash-workflow-step {
+  font-size: var(--dash-text-xs); font-weight: 600; color: var(--dash-text-muted);
+  background: var(--dash-neutral-soft); border-radius: 999px; padding: 5px 12px;
+}
+.dash-workflow-arrow { color: var(--dash-text-faint); font-size: var(--dash-text-sm); }
+
+/* ---- Responsive: hamburger + slide-over drawer replaces the sidebar
+   below tablet width — never a horizontally-scrolling nav strip. ---- */
 @media (max-width: 860px) {
   .dash-shell { flex-direction: column; }
-  .dash-sidebar { width: 100%; flex-direction: row; overflow-x: auto; padding: 10px 14px; align-items: center; border-right: none; border-bottom: 1px solid var(--dash-border); }
-  .dash-brand { padding: 0 14px 0 0; }
-  .dash-nav-section { display: none; }
-  .dash-main { padding: 18px; }
+  .dash-sidebar { display: none; }
+  .dash-hamburger { display: inline-flex; }
+  .dash-main { padding: var(--dash-space-4); }
+  .dash-topbar { padding: var(--dash-space-3) var(--dash-space-4); }
+  .dash-breadcrumb .current { max-width: 40vw; }
+}
+
+/* Tablet: sidebar stays, just narrower — a clean transition point between
+   the full desktop width and the mobile drawer, not a hard jump. */
+@media (min-width: 861px) and (max-width: 1080px) {
+  .dash { --dash-sidebar-w: 200px; }
+  .dash-main { padding: var(--dash-space-5); }
 }

@@ -1,4 +1,5 @@
 import { signInAction } from "@/app/dashboard/auth-actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +22,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <label htmlFor="password">Password</label>
             <input id="password" type="password" name="password" required autoComplete="current-password" />
           </div>
-          <button className="dash-btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>
+          <SubmitButton variant="primary" pendingLabel="Signing in…" style={{ width: "100%", justifyContent: "center" }}>
             Sign in
-          </button>
+          </SubmitButton>
         </form>
         <p style={{ marginTop: 16, fontSize: "0.85rem" }}>
           <a href="/dashboard/forgot-password">Forgot your password?</a>

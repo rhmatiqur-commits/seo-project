@@ -3,6 +3,7 @@ import { getOrganization } from "@/lib/db/organizations";
 import { findAuthUserByEmail } from "@/lib/auth/users";
 import { getCurrentUser } from "@/lib/auth/session";
 import { acceptInvitationSignupAction, acceptInvitationForExistingUserAction } from "@/app/dashboard/auth-actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -56,9 +57,9 @@ export default async function AcceptInvitePage({ searchParams }: { searchParams:
           {error && <div className="dash-notice danger">{error}</div>}
           <form action={acceptInvitationForExistingUserAction}>
             <input type="hidden" name="token" value={token} />
-            <button className="dash-btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>
+            <SubmitButton variant="primary" pendingLabel="Joining…" style={{ width: "100%", justifyContent: "center" }}>
               Accept invitation
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </div>
@@ -101,9 +102,9 @@ export default async function AcceptInvitePage({ searchParams }: { searchParams:
               <label htmlFor="password">Choose a password</label>
               <input id="password" type="password" name="password" required minLength={8} autoComplete="new-password" autoFocus />
             </div>
-            <button className="dash-btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>
+            <SubmitButton variant="primary" pendingLabel="Creating account…" style={{ width: "100%", justifyContent: "center" }}>
               Create account &amp; join
-            </button>
+            </SubmitButton>
           </form>
         )}
       </div>

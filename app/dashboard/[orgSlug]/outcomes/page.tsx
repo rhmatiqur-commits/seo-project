@@ -2,6 +2,7 @@ import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,9 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
         performance is affected by many factors (algorithm updates, seasonality, competitors) beyond what any single change controls.
       </div>
 
-      {actions.length === 0 && <p className="dash-empty">No completed SEO actions yet.</p>}
+      {actions.length === 0 && (
+        <EmptyState title="No completed SEO actions yet" description="Outcomes appear here once a published page or completed task has had time to be measured against Search Console data." />
+      )}
 
       <div className="dash-grid">
         {actions.map((action) => {
