@@ -45,3 +45,15 @@ export async function getOrganization(id: string): Promise<OrganizationRow | nul
   if (error) throw error;
   return data;
 }
+
+/** Looks up by the URL-facing slug — the client portal's routes are
+ * `/dashboard/[orgSlug]/...` (spec: never let the browser supply an
+ * organisation id as proof of access; the slug identifies *which*
+ * organisation a page is asking about, membership is what actually grants
+ * access, checked separately by lib/auth/session.ts). */
+export async function getOrganizationBySlug(slug: string): Promise<OrganizationRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("organizations").select("*").eq("slug", slug).maybeSingle();
+  if (error) throw error;
+  return data;
+}

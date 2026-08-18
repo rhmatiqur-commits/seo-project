@@ -9,6 +9,12 @@ const envSchema = z
   .object({
     NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    // Optional at boot (same posture as GOOGLE_OAUTH_CLIENT_ID/DATAFORSEO_LOGIN
+    // below) so a deployment with only /admin configured still starts; the
+    // client portal (Phase 7, /dashboard/**) fails with a clear error instead
+    // of the whole app refusing to boot when this is missing. Safe to ship to
+    // the browser by Supabase's own convention — RLS (lib/supabase/server-session.ts),
+    // not secrecy of this key, is what protects tenant data behind it.
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
 
     // Which AIProvider implementation lib/ai/get-provider.ts hands back.

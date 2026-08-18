@@ -1,5 +1,5 @@
 // Generated via the Supabase MCP `generate_typescript_types` tool against the
-// live schema (supabase/migrations/0001-0025). Regenerate after any migration
+// live schema (supabase/migrations/0001-0027). Regenerate after any migration
 // change and reconcile with the Tables section rather than hand-editing generated shapes.
 
 ﻿export type Json =
@@ -1100,6 +1100,53 @@ export type Database = {
             columns: ["opportunity_id"]
             isOneToOne: false
             referencedRelation: "seo_opportunities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_invitations: {
+        Row: {
+          accepted_at: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string | null
+          organization_id: string
+          role: Database["public"]["Enums"]["membership_role"]
+          status: Database["public"]["Enums"]["invitation_status"]
+          token: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string
+          email: string
+          expires_at?: string
+          id?: string
+          invited_by?: string | null
+          organization_id: string
+          role?: Database["public"]["Enums"]["membership_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          token?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string | null
+          organization_id?: string
+          role?: Database["public"]["Enums"]["membership_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -2559,6 +2606,7 @@ export type Database = {
         | "GITHUB_BRANCH_ONLY"
         | "GITHUB_PULL_REQUEST"
         | "GITHUB_MERGE"
+      invitation_status: "pending" | "accepted" | "revoked" | "expired"
       issue_severity: "critical" | "high" | "medium" | "low"
       issue_status: "open" | "resolved" | "ignored"
       job_status:
@@ -2601,7 +2649,14 @@ export type Database = {
         | "LOCAL"
         | "UNKNOWN"
       keyword_source: "ai_suggested" | "manual" | "provider"
-      membership_role: "owner" | "admin" | "member"
+      membership_role:
+        | "owner"
+        | "admin"
+        | "member"
+        | "OWNER"
+        | "MANAGER"
+        | "EDITOR"
+        | "VIEWER"
       opportunity_effort: "low" | "medium" | "high"
       opportunity_status: "new" | "approved" | "rejected" | "done"
       opportunity_type:
@@ -2841,6 +2896,7 @@ export const Constants = {
         "GITHUB_PULL_REQUEST",
         "GITHUB_MERGE",
       ],
+      invitation_status: ["pending", "accepted", "revoked", "expired"],
       issue_severity: ["critical", "high", "medium", "low"],
       issue_status: ["open", "resolved", "ignored"],
       job_status: ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED"],
@@ -2881,7 +2937,15 @@ export const Constants = {
         "UNKNOWN",
       ],
       keyword_source: ["ai_suggested", "manual", "provider"],
-      membership_role: ["owner", "admin", "member"],
+      membership_role: [
+        "owner",
+        "admin",
+        "member",
+        "OWNER",
+        "MANAGER",
+        "EDITOR",
+        "VIEWER",
+      ],
       opportunity_effort: ["low", "medium", "high"],
       opportunity_status: ["new", "approved", "rejected", "done"],
       opportunity_type: [
@@ -2973,6 +3037,7 @@ export const Constants = {
     },
   },
 } as const
+
 // --- Convenience aliases used throughout lib/ and app/ (not part of the generated contract) ---
 
 export type MembershipRole = Database["public"]["Enums"]["membership_role"];
@@ -2996,8 +3061,6 @@ export type ContentPipelineStatus = Database["public"]["Enums"]["content_pipelin
 export type ContentQaStatus = Database["public"]["Enums"]["content_qa_status"];
 export type CmsProvider = Database["public"]["Enums"]["cms_provider"];
 export type CmsConnectionStatus = Database["public"]["Enums"]["cms_connection_status"];
-export type GithubPublicationMode = Database["public"]["Enums"]["github_publication_mode"];
-export type GithubContentAdapter = Database["public"]["Enums"]["github_content_adapter"];
 export type PublicationStatus = Database["public"]["Enums"]["publication_status"];
 // Phase 6: Autonomous SEO Optimisation Loop.
 export type SeoActionType = Database["public"]["Enums"]["seo_action_type"];
@@ -3009,6 +3072,11 @@ export type PageLifecycleStage = Database["public"]["Enums"]["page_lifecycle_sta
 export type SeoAlertType = Database["public"]["Enums"]["seo_alert_type"];
 export type SeoAlertSeverity = Database["public"]["Enums"]["seo_alert_severity"];
 export type SeoAlertStatus = Database["public"]["Enums"]["seo_alert_status"];
+// Phase 6A: GitHub/Vercel Publishing Provider.
+export type GithubPublicationMode = Database["public"]["Enums"]["github_publication_mode"];
+export type GithubContentAdapter = Database["public"]["Enums"]["github_content_adapter"];
+// Phase 7: Multi-Tenant Client Portal & SaaS.
+export type InvitationStatus = Database["public"]["Enums"]["invitation_status"];
 
 /** Shape of website_pages.headings (stored as jsonb; not enforced by Postgres). */
 export interface Heading {

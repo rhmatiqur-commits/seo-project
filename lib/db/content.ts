@@ -96,6 +96,19 @@ export async function listContentJobsForBrief(contentBriefId: string): Promise<C
   return data;
 }
 
+/** Every content_job for a website (Phase 7's client Content page /
+ * dashboard home "pending approvals" count) — content_jobs has no direct
+ * website_id-scoped query before this since every prior caller worked from
+ * one specific brief. */
+export async function listContentJobsForWebsite(websiteId: string, status?: ContentPipelineStatus): Promise<ContentJobRow[]> {
+  const db = supabaseAdmin();
+  let query = db.from("content_jobs").select("*").eq("website_id", websiteId);
+  if (status) query = query.eq("status", status);
+  const { data, error } = await query.order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
 /** A brief is only available for a fresh "Generate content" click if it has
  * no non-terminal content_jobs row already — this is the DB half of
  * duplicate-generation prevention (the other half is jobs.idempotency_key). */
