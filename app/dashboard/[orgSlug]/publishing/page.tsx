@@ -5,6 +5,7 @@ import { listPublicationsForWebsite } from "@/lib/db/content-publications";
 import { getCmsConnectionForWebsite } from "@/lib/db/cms-connections";
 import { toPublicConnection } from "@/lib/publishing/connection-view";
 import { getContentVersionById } from "@/lib/db/content";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -75,52 +76,58 @@ export default async function PublishingPage({ params }: { params: Promise<{ org
         </div>
       )}
 
-      {publications.length === 0 && <p className="dash-empty">Nothing published yet.</p>}
+      {publications.length === 0 && (
+        <EmptyState title="Nothing published yet" description="Publications appear here once a piece of approved content is prepared for your site from its Content page." />
+      )}
 
-      <table className="dash-table">
-        <thead>
-          <tr>
-            <th>Page</th>
-            <th>Status</th>
-            <th>Links</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          {publications.map((p) => {
-            const briefId = briefIdByVersion.get(p.content_version_id);
-            return (
-              <tr key={p.id}>
-                <td>{briefId ? <Link href={`/dashboard/${orgSlug}/content/${briefId}`}>{p.target_url ?? "Untitled page"}</Link> : p.target_url ?? "Untitled page"}</td>
-                <td>
-                  <span className={`dash-badge ${STATUS_TONE[p.status] ?? "info"}`}>{p.status.replace(/_/g, " ")}</span>
-                </td>
-                <td className="dash-muted" style={{ fontSize: "0.82rem" }}>
-                  {p.pull_request_url && (
-                    <a href={p.pull_request_url} target="_blank" rel="noreferrer">
-                      Pull request &rarr;
-                    </a>
-                  )}
-                  {p.pull_request_url && p.preview_url && " · "}
-                  {p.preview_url && (
-                    <a href={p.preview_url} target="_blank" rel="noreferrer">
-                      Preview &rarr;
-                    </a>
-                  )}
-                  {(p.pull_request_url || p.preview_url) && p.status === "PUBLISHED" && " · "}
-                  {p.status === "PUBLISHED" && p.target_url && (
-                    <a href={p.target_url} target="_blank" rel="noreferrer">
-                      Live page &rarr;
-                    </a>
-                  )}
-                  {!p.pull_request_url && !p.preview_url && p.status !== "PUBLISHED" && "-"}
-                </td>
-                <td className="dash-muted">{fmt(p.updated_at)}</td>
+      {publications.length > 0 && (
+        <div className="dash-table-wrap">
+          <table className="dash-table responsive">
+            <thead>
+              <tr>
+                <th>Page</th>
+                <th>Status</th>
+                <th>Links</th>
+                <th>Updated</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {publications.map((p) => {
+                const briefId = briefIdByVersion.get(p.content_version_id);
+                return (
+                  <tr key={p.id}>
+                    <td data-label="Page">{briefId ? <Link href={`/dashboard/${orgSlug}/content/${briefId}`}>{p.target_url ?? "Untitled page"}</Link> : p.target_url ?? "Untitled page"}</td>
+                    <td data-label="Status">
+                      <span className={`dash-badge ${STATUS_TONE[p.status] ?? "info"}`}>{p.status.replace(/_/g, " ")}</span>
+                    </td>
+                    <td className="dash-muted" style={{ fontSize: "0.82rem" }} data-label="Links">
+                      {p.pull_request_url && (
+                        <a href={p.pull_request_url} target="_blank" rel="noreferrer">
+                          Pull request &rarr;
+                        </a>
+                      )}
+                      {p.pull_request_url && p.preview_url && " · "}
+                      {p.preview_url && (
+                        <a href={p.preview_url} target="_blank" rel="noreferrer">
+                          Preview &rarr;
+                        </a>
+                      )}
+                      {(p.pull_request_url || p.preview_url) && p.status === "PUBLISHED" && " · "}
+                      {p.status === "PUBLISHED" && p.target_url && (
+                        <a href={p.target_url} target="_blank" rel="noreferrer">
+                          Live page &rarr;
+                        </a>
+                      )}
+                      {!p.pull_request_url && !p.preview_url && p.status !== "PUBLISHED" && "-"}
+                    </td>
+                    <td className="dash-muted" data-label="Updated">{fmt(p.updated_at)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { createSessionClient } from "@/lib/supabase/server-session";
 import { updatePasswordAction } from "@/app/dashboard/auth-actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +42,9 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
               <label htmlFor="password">New password</label>
               <input id="password" type="password" name="password" required minLength={8} autoComplete="new-password" autoFocus />
             </div>
-            <button className="dash-btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>
+            <SubmitButton variant="primary" pendingLabel="Updating…" style={{ width: "100%", justifyContent: "center" }}>
               Update password
-            </button>
+            </SubmitButton>
           </form>
         )}
       </div>

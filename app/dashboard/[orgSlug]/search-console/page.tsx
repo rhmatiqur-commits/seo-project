@@ -2,6 +2,7 @@ import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { getSearchConsoleStatsForWebsite, listSearchConsoleMetricsForWebsite } from "@/lib/db/search-console";
 import { getSearchConsoleConnection } from "@/lib/db/search-console";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -30,19 +31,19 @@ export default async function SearchConsolePage({ params }: { params: Promise<{ 
 
       {stats && stats.totalRows > 0 && (
         <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 24 }}>
-          <div className="dash-card">
+          <div className="dash-card stat">
             <div className="dash-stat-label">Clicks</div>
             <div className="dash-stat-value">{stats.totalClicks.toLocaleString()}</div>
           </div>
-          <div className="dash-card">
+          <div className="dash-card stat">
             <div className="dash-stat-label">Impressions</div>
             <div className="dash-stat-value">{stats.totalImpressions.toLocaleString()}</div>
           </div>
-          <div className="dash-card">
+          <div className="dash-card stat">
             <div className="dash-stat-label">Average position</div>
             <div className="dash-stat-value">{stats.averagePosition ?? "-"}</div>
           </div>
-          <div className="dash-card">
+          <div className="dash-card stat">
             <div className="dash-stat-label">Data since</div>
             <div className="dash-stat-value" style={{ fontSize: "1.1rem" }}>
               {fmt(stats.earliestDate)}
@@ -53,33 +54,39 @@ export default async function SearchConsolePage({ params }: { params: Promise<{ 
 
       <h2 style={{ fontSize: "1rem" }}>Top queries &amp; pages</h2>
       <div className="dash-notice" style={{ marginBottom: 12 }}>
-        Real Google Search Console data — clicks, impressions, position.
+        Real Google Search Console data — clicks, impressions, position. Showing the latest {rows.length} row{rows.length === 1 ? "" : "s"}.
       </div>
-      {rows.length === 0 && <p className="dash-empty">No Search Console data yet.</p>}
-      <table className="dash-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Query</th>
-            <th>Page</th>
-            <th>Clicks</th>
-            <th>Impressions</th>
-            <th>Position</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td className="dash-muted">{fmt(r.date)}</td>
-              <td>{r.query ?? "-"}</td>
-              <td className="dash-muted">{r.page_url ?? "-"}</td>
-              <td>{r.clicks}</td>
-              <td className="dash-muted">{r.impressions}</td>
-              <td className="dash-muted">{r.position !== null ? Math.round(r.position * 10) / 10 : "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {rows.length === 0 && (
+        <EmptyState title="No Search Console data yet" description="Once Google Search Console is connected, real clicks/impressions/position data appears here." />
+      )}
+      {rows.length > 0 && (
+        <div className="dash-table-wrap">
+          <table className="dash-table responsive">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Query</th>
+                <th>Page</th>
+                <th>Clicks</th>
+                <th>Impressions</th>
+                <th>Position</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="dash-muted" data-label="Date">{fmt(r.date)}</td>
+                  <td data-label="Query">{r.query ?? "-"}</td>
+                  <td className="dash-muted" data-label="Page">{r.page_url ?? "-"}</td>
+                  <td data-label="Clicks">{r.clicks}</td>
+                  <td className="dash-muted" data-label="Impressions">{r.impressions}</td>
+                  <td className="dash-muted" data-label="Position">{r.position !== null ? Math.round(r.position * 10) / 10 : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { requestPasswordResetAction } from "@/app/dashboard/auth-actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +22,9 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
                 <label htmlFor="email">Email</label>
                 <input id="email" type="email" name="email" required autoComplete="email" autoFocus />
               </div>
-              <button className="dash-btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>
+              <SubmitButton variant="primary" pendingLabel="Sending…" style={{ width: "100%", justifyContent: "center" }}>
                 Send reset link
-              </button>
+              </SubmitButton>
             </form>
           </>
         )}

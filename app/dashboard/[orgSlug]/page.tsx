@@ -8,6 +8,7 @@ import { listContentJobsForWebsite } from "@/lib/db/content";
 import { listPublicationsForWebsite } from "@/lib/db/content-publications";
 import { getSeoActionOutcomeStatsForWebsite } from "@/lib/db/seo-action-outcomes";
 import { listAlertsForWebsite } from "@/lib/db/seo-alerts";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -49,19 +50,19 @@ export default async function OrganizationHomePage({ params }: { params: Promise
       <p className="dash-page-subtitle">Here&apos;s how your SEO is doing and what needs your attention.</p>
 
       <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 24 }}>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Organic clicks</div>
           <div className="dash-stat-value">{gscStats.totalClicks.toLocaleString()}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Impressions</div>
           <div className="dash-stat-value">{gscStats.totalImpressions.toLocaleString()}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Average position</div>
           <div className="dash-stat-value">{gscStats.averagePosition ?? "-"}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">CTR</div>
           <div className="dash-stat-value">{gscStats.totalImpressions > 0 ? `${Math.round((gscStats.totalClicks / gscStats.totalImpressions) * 1000) / 10}%` : "-"}</div>
         </div>
@@ -84,15 +85,15 @@ export default async function OrganizationHomePage({ params }: { params: Promise
       )}
 
       <div className="dash-grid dash-grid-cols-3" style={{ marginBottom: 24 }}>
-        <Link href={`/dashboard/${orgSlug}/opportunities`} className="dash-card">
+        <Link href={`/dashboard/${orgSlug}/opportunities`} className="dash-card stat interactive">
           <div className="dash-stat-label">Active opportunities</div>
           <div className="dash-stat-value">{openOpportunities.length}</div>
         </Link>
-        <Link href={`/dashboard/${orgSlug}/content`} className="dash-card">
+        <Link href={`/dashboard/${orgSlug}/content`} className="dash-card stat interactive">
           <div className="dash-stat-label">Pending your approval</div>
           <div className="dash-stat-value">{pendingApprovals.length}</div>
         </Link>
-        <Link href={`/dashboard/${orgSlug}/audit`} className="dash-card">
+        <Link href={`/dashboard/${orgSlug}/audit`} className="dash-card stat interactive">
           <div className="dash-stat-label">Issues needing attention</div>
           <div className="dash-stat-value">{criticalOrHigh.length}</div>
         </Link>
@@ -101,7 +102,9 @@ export default async function OrganizationHomePage({ params }: { params: Promise
       <div className="dash-grid dash-grid-cols-2">
         <div className="dash-card">
           <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Recent publications</h2>
-          {publications.length === 0 && <p className="dash-muted">Nothing published yet.</p>}
+          {publications.length === 0 && (
+            <EmptyState title="Nothing published yet" description="Publications appear here once a piece of approved content is prepared for your site." />
+          )}
           {publications.map((p) => (
             <div key={p.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--dash-border)" }}>
               <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{p.target_url ?? "Untitled page"}</div>

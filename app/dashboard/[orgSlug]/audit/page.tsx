@@ -1,6 +1,7 @@
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listIssuesForWebsite } from "@/lib/db/audits";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export default async function AuditPage({
 
       <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 24 }}>
         {bySeverity.map(({ severity: sev, count }) => (
-          <a key={sev} href={`?severity=${sev}`} className="dash-card">
+          <a key={sev} href={`?severity=${sev}`} className={`dash-card stat interactive${severity === sev ? " selected" : ""}`}>
             <div className="dash-stat-label">{sev}</div>
             <div className="dash-stat-value">{count}</div>
           </a>
@@ -43,28 +44,37 @@ export default async function AuditPage({
         </p>
       )}
 
-      {issues.length === 0 && <p className="dash-empty">No open issues at this severity. Nicely done.</p>}
+      {issues.length === 0 && (
+        <EmptyState
+          title="No open issues at this severity"
+          description="Nicely done — nothing here needs attention right now. New issues surface automatically after your next SEO audit."
+        />
+      )}
 
-      <table className="dash-table">
-        <thead>
-          <tr>
-            <th>Severity</th>
-            <th>Issue</th>
-            <th>Recommended action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {issues.map((issue) => (
-            <tr key={issue.id}>
-              <td>
-                <span className={`dash-badge ${SEVERITY_TONE[issue.severity]}`}>{issue.severity}</span>
-              </td>
-              <td>{issue.description}</td>
-              <td className="dash-muted">{issue.recommended_action}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {issues.length > 0 && (
+        <div className="dash-table-wrap">
+          <table className="dash-table">
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Issue</th>
+                <th>Recommended action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issues.map((issue) => (
+                <tr key={issue.id}>
+                  <td>
+                    <span className={`dash-badge ${SEVERITY_TONE[issue.severity]}`}>{issue.severity}</span>
+                  </td>
+                  <td>{issue.description}</td>
+                  <td className="dash-muted">{issue.recommended_action}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

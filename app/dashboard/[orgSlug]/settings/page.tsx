@@ -16,6 +16,8 @@ import {
   updateMemberRoleAction,
   removeMemberAction,
 } from "@/app/dashboard/actions";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
+import { ConfirmSubmitButton } from "@/app/dashboard/_components/ConfirmSubmitButton";
 import type { MembershipRole } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
@@ -96,9 +98,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
             {cmsConnection && (
               <form action={testPublishingConnectionDashboardAction} style={{ marginBottom: 16 }}>
                 <input type="hidden" name="org_slug" value={orgSlug} />
-                <button className="dash-btn secondary" type="submit">
+                <SubmitButton variant="secondary" pendingLabel="Testing…">
                   Test connection
-                </button>
+                </SubmitButton>
               </form>
             )}
 
@@ -112,9 +114,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
                   <label htmlFor="token">Fine-grained Personal Access Token</label>
                   <input id="token" type="password" name="token" autoComplete="off" required />
                 </div>
-                <button className="dash-btn secondary" type="submit">
+                <SubmitButton variant="secondary" pendingLabel="Saving…">
                   Save token
-                </button>
+                </SubmitButton>
               </form>
 
               {cmsConnectionRow?.status === "pending_repo_selection" && (
@@ -132,9 +134,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
                     <label htmlFor="production_branch">Production branch</label>
                     <input id="production_branch" type="text" name="production_branch" placeholder="master" required />
                   </div>
-                  <button className="dash-btn secondary" type="submit">
+                  <SubmitButton variant="secondary" pendingLabel="Saving…">
                     Save repository
-                  </button>
+                  </SubmitButton>
                 </form>
               )}
             </details>
@@ -174,9 +176,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
                             </option>
                           ))}
                         </select>
-                        <button className="dash-btn secondary" type="submit" style={{ padding: "4px 10px", fontSize: "0.78rem" }}>
+                        <SubmitButton variant="secondary" pendingLabel="Saving…" style={{ padding: "4px 10px", fontSize: "0.78rem" }}>
                           Save
-                        </button>
+                        </SubmitButton>
                       </form>
                     ) : (
                       <span className="dash-badge">{m.role}</span>
@@ -188,9 +190,15 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
                         <form action={removeMemberAction}>
                           <input type="hidden" name="org_slug" value={orgSlug} />
                           <input type="hidden" name="membership_id" value={m.id} />
-                          <button className="dash-btn danger" type="submit" style={{ padding: "4px 10px", fontSize: "0.78rem" }}>
+                          <ConfirmSubmitButton
+                            variant="danger-outline"
+                            style={{ padding: "4px 10px", fontSize: "0.78rem" }}
+                            confirmTitle={`Remove ${info?.email ?? "this person"} from ${organization.name}?`}
+                            confirmDescription="They'll immediately lose access to this organisation's dashboard. You can invite them again later if needed."
+                            confirmLabel="Remove member"
+                          >
                             Remove
-                          </button>
+                          </ConfirmSubmitButton>
                         </form>
                       )}
                     </td>
@@ -218,9 +226,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
                         <form action={revokeInvitationAction}>
                           <input type="hidden" name="org_slug" value={orgSlug} />
                           <input type="hidden" name="invitation_id" value={inv.id} />
-                          <button className="dash-btn secondary" type="submit" style={{ padding: "4px 10px", fontSize: "0.78rem" }}>
+                          <SubmitButton variant="secondary" pendingLabel="Revoking…" style={{ padding: "4px 10px", fontSize: "0.78rem" }}>
                             Revoke
-                          </button>
+                          </SubmitButton>
                         </form>
                       </td>
                     )}
@@ -248,9 +256,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
                 ))}
               </select>
             </div>
-            <button className="dash-btn" type="submit">
+            <SubmitButton variant="primary" pendingLabel="Sending…">
               Send invite
-            </button>
+            </SubmitButton>
           </form>
         )}
       </div>

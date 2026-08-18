@@ -5,6 +5,7 @@ import { listIssuesForWebsite } from "@/lib/db/audits";
 import { listOpportunitiesForWebsite } from "@/lib/db/opportunities";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
     return (
       <>
         <h1 className="dash-page-title">Reports</h1>
-        <p className="dash-empty">No website configured yet.</p>
+        <EmptyState title="No website configured yet" description="Reports appear once a website has been set up for your organisation." />
       </>
     );
   }
@@ -100,17 +101,17 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
       </p>
 
       <div className="dash-grid dash-grid-cols-3" style={{ marginBottom: 28 }}>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Clicks</div>
           <div className="dash-stat-value">{current.clicks.toLocaleString()}</div>
           <div className={`dash-stat-delta ${clicksDelta.tone}`}>{clicksDelta.text} vs previous period</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Impressions</div>
           <div className="dash-stat-value">{current.impressions.toLocaleString()}</div>
           <div className={`dash-stat-delta ${impressionsDelta.tone}`}>{impressionsDelta.text} vs previous period</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Average position</div>
           <div className="dash-stat-value">{current.position ?? "-"}</div>
           <div className="dash-muted" style={{ fontSize: "0.82rem" }}>previously {previous.position ?? "-"}</div>
@@ -119,19 +120,19 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
 
       <h2 style={{ fontSize: "1rem" }}>SEO actions</h2>
       <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 28 }}>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Completed</div>
           <div className="dash-stat-value">{actions.length}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Successful</div>
           <div className="dash-stat-value" style={{ color: "var(--dash-success)" }}>{successful}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Still measuring</div>
           <div className="dash-stat-value">{stillMeasuring}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Needing attention</div>
           <div className="dash-stat-value" style={{ color: needsAttention > 0 ? "var(--dash-danger)" : undefined }}>{needsAttention}</div>
         </div>
@@ -139,15 +140,15 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
 
       <h2 style={{ fontSize: "1rem" }}>Technical health</h2>
       <div className="dash-grid dash-grid-cols-3">
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Open opportunities</div>
           <div className="dash-stat-value">{openOpportunities.length}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Open issues</div>
           <div className="dash-stat-value">{openIssues.length}</div>
         </div>
-        <div className="dash-card">
+        <div className="dash-card stat">
           <div className="dash-stat-label">Critical/high issues</div>
           <div className="dash-stat-value" style={{ color: criticalOrHigh.length > 0 ? "var(--dash-danger)" : undefined }}>{criticalOrHigh.length}</div>
         </div>

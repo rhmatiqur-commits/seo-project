@@ -2,6 +2,7 @@ import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listCompetitorDomainsForWebsite } from "@/lib/db/competitors";
 import { listSearchPerformanceOpportunitiesForWebsite } from "@/lib/db/search-performance";
+import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -29,28 +30,34 @@ export default async function CompetitorsPage({ params }: { params: Promise<{ or
       <h1 className="dash-page-title">Competitors</h1>
       <p className="dash-page-subtitle">Who else ranks for the keywords that matter to you.</p>
 
-      {directCompetitors.length === 0 && <p className="dash-empty">No competitor data yet.</p>}
+      {directCompetitors.length === 0 && (
+        <EmptyState title="No competitor data yet" description="Competitor domains appear here once your tracked keywords have been checked against real search results." />
+      )}
 
-      <table className="dash-table" style={{ marginBottom: 28 }}>
-        <thead>
-          <tr>
-            <th>Domain</th>
-            <th>Type</th>
-            <th>Appears for</th>
-            <th>Average position</th>
-          </tr>
-        </thead>
-        <tbody>
-          {directCompetitors.map((d) => (
-            <tr key={d.id}>
-              <td style={{ fontWeight: 600 }}>{d.domain}</td>
-              <td className="dash-muted">{CLASSIFICATION_LABEL[d.classification]}</td>
-              <td className="dash-muted">{d.relevant_keyword_count} keyword{d.relevant_keyword_count === 1 ? "" : "s"}</td>
-              <td className="dash-muted">{d.average_position !== null ? Math.round(d.average_position * 10) / 10 : "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {directCompetitors.length > 0 && (
+        <div className="dash-table-wrap" style={{ marginBottom: 28 }}>
+          <table className="dash-table responsive">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Type</th>
+                <th>Appears for</th>
+                <th>Average position</th>
+              </tr>
+            </thead>
+            <tbody>
+              {directCompetitors.map((d) => (
+                <tr key={d.id}>
+                  <td style={{ fontWeight: 600 }} data-label="Domain">{d.domain}</td>
+                  <td className="dash-muted" data-label="Type">{CLASSIFICATION_LABEL[d.classification]}</td>
+                  <td className="dash-muted" data-label="Appears for">{d.relevant_keyword_count} keyword{d.relevant_keyword_count === 1 ? "" : "s"}</td>
+                  <td className="dash-muted" data-label="Average position">{d.average_position !== null ? Math.round(d.average_position * 10) / 10 : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {gapOpportunities.length > 0 && (
         <>

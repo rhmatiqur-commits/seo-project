@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { requireOrganizationMembership, listCurrentUserMemberships } from "@/lib/auth/session";
 import { signOutAction } from "@/app/dashboard/auth-actions";
+import { MobileNav } from "@/app/dashboard/_components/MobileNav";
+import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
 
 const NAV_SECTIONS: Array<{ label: string; items: Array<{ href: string; label: string }> }> = [
   { label: "", items: [{ href: "", label: "Overview" }] },
@@ -79,13 +81,20 @@ export default async function OrganizationDashboardLayout({ children, params }: 
       </aside>
       <div className="dash-content">
         <div className="dash-topbar">
+          <MobileNav
+            orgName={organization.name}
+            role={membership.role}
+            orgSlug={orgSlug}
+            sections={NAV_SECTIONS}
+            switcher={memberships.map((m) => ({ slug: m.organization.slug, name: m.organization.name }))}
+          />
           <span className="dash-muted" style={{ fontSize: "0.85rem" }}>
             {user.email}
           </span>
           <form action={signOutAction}>
-            <button className="dash-btn secondary" type="submit">
+            <SubmitButton variant="secondary" pendingLabel="Signing out…">
               Sign out
-            </button>
+            </SubmitButton>
           </form>
         </div>
         <div className="dash-main">{children}</div>
