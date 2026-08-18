@@ -429,5 +429,3 @@ export async function removeMemberAction(formData: FormData): Promise<void> {
   revalidatePath(`/dashboard/${orgSlug}/settings`);
   redirect(`/dashboard/${orgSlug}/settings`);
 }
-
-export { PermissionError };
