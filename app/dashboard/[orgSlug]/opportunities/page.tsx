@@ -1,126 +1,63 @@
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listOpportunitiesForWebsite } from "@/lib/db/opportunities";
+import { getPageById } from "@/lib/db/pages";
 import { canManageSeoWork } from "@/lib/auth/permissions";
 import { acceptOpportunityAction, dismissOpportunityAction } from "@/app/dashboard/actions";
-import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
-import { ActionGroup } from "@/app/dashboard/_components/ActionGroup";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
+import { OpportunityBrowser } from "@/app/dashboard/_components/OpportunityBrowser";
+import { buildOpportunityCardViewModel } from "@/lib/dashboard/opportunity-detail";
+import { selectOpportunitiesViewState } from "@/lib/dashboard/opportunity-groups";
 
 export const dynamic = "force-dynamic";
 
-const TYPE_LABELS: Record<string, string> = {
-  CREATE_NEW_PAGE: "Create a new page",
-  OPTIMISE_EXISTING_PAGE: "Improve an existing page",
-  TECHNICAL_FIX: "Technical fix",
-  INTERNAL_LINKING: "Internal linking",
-  RESEARCH_REQUIRED: "Needs research",
-  IMPROVE_CTR: "Improve click-through rate",
-  INVESTIGATE_DECLINE: "Investigate a decline",
-  INVESTIGATE_OPPORTUNITY: "Investigate an opportunity",
-  IMPROVE_INTERNAL_LINKING: "Improve internal linking",
-};
-
-/** Translates the internal 0-20-ish priority_score into a client-friendly
- * Low/Medium/High impact label — never shows the raw internal number or its
- * formula (spec: "Do not expose internal scoring implementation unnecessarily"). */
-function impactLabel(score: number): { label: string; tone: string } {
-  if (score >= 10) return { label: "High impact", tone: "danger" };
-  if (score >= 5) return { label: "Medium impact", tone: "warning" };
-  return { label: "Low impact", tone: "info" };
-}
-
+/**
+ * Phase 7.1D: replaces the old unbounded "every 'new' opportunity as a
+ * card, everything else in a flat table" layout with a bounded, filterable,
+ * grouped-by-impact view — see OpportunityBrowser. This page's only job is
+ * data: fetch the same opportunities the old page fetched (no new query
+ * shape), resolve each one's affected page via the existing getPageById
+ * lookup, and hand plain view models to the client component that does the
+ * filtering/grouping/show-more.
+ */
 export default async function OpportunitiesPage({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
   const { organization, membership } = await requireOrganizationMembership(orgSlug);
   const website = await getPrimaryWebsiteForOrganization(organization.id);
-  const opportunities = website ? await listOpportunitiesForWebsite(website.id) : [];
+
+  if (!website) {
+    return (
+      <>
+        <h1 className="dash-page-title">Opportunities</h1>
+        <EmptyState title="No website configured yet" description="Opportunities appear once a website has been set up for your organisation." />
+      </>
+    );
+  }
+
+  const opportunities = await listOpportunitiesForWebsite(website.id);
   const canAct = canManageSeoWork(membership.role);
 
-  const open = opportunities.filter((o) => o.status === "new");
-  const decided = opportunities.filter((o) => o.status !== "new");
+  const uniquePageIds = Array.from(new Set(opportunities.map((o) => o.target_page_id).filter((id): id is string => id !== null)));
+  const pages = await Promise.all(uniquePageIds.map((id) => getPageById(id)));
+  const pageById = new Map(uniquePageIds.map((id, i) => [id, pages[i]]));
+
+  const cards = opportunities.map((o) => buildOpportunityCardViewModel(o, o.target_page_id ? (pageById.get(o.target_page_id) ?? null) : null));
+  const viewState = selectOpportunitiesViewState(opportunities);
+  const totalNewCount = opportunities.filter((o) => o.status === "new").length;
 
   return (
     <>
       <h1 className="dash-page-title">Opportunities</h1>
-      <p className="dash-page-subtitle">Recommendations for growing your organic search performance.</p>
 
-      {open.length === 0 && (
-        <EmptyState
-          title="No new opportunities right now"
-          description="We check for new opportunities on a regular schedule — check back after your next SEO analysis."
-        />
-      )}
-
-      <div className="dash-grid" style={{ marginBottom: 28 }}>
-        {open.map((o) => {
-          const impact = impactLabel(o.priority_score);
-          return (
-            <div key={o.id} className={`dash-card${canAct ? " action" : ""}`}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                <div>
-                  <span className={`dash-badge ${impact.tone}`}>{impact.label}</span>{" "}
-                  <span className="dash-badge neutral">{TYPE_LABELS[o.type] ?? o.type}</span>
-                  <h3 style={{ margin: "8px 0 4px" }}>{o.title}</h3>
-                </div>
-              </div>
-              <p className="dash-muted" style={{ fontSize: "0.88rem" }}>
-                {o.description}
-              </p>
-              <details style={{ fontSize: "0.85rem", marginBottom: 4 }}>
-                <summary style={{ cursor: "pointer", color: "var(--dash-text-muted)", fontWeight: 600 }}>Why this matters</summary>
-                <p style={{ marginTop: 6 }}>{o.rationale}</p>
-              </details>
-              {canAct && (
-                <ActionGroup>
-                  <div className="dash-row" style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <form action={acceptOpportunityAction}>
-                      <input type="hidden" name="org_slug" value={orgSlug} />
-                      <input type="hidden" name="opportunity_id" value={o.id} />
-                      <SubmitButton variant="primary" pendingLabel="Accepting…">
-                        Accept &amp; create task
-                      </SubmitButton>
-                    </form>
-                    <form action={dismissOpportunityAction}>
-                      <input type="hidden" name="org_slug" value={orgSlug} />
-                      <input type="hidden" name="opportunity_id" value={o.id} />
-                      <SubmitButton variant="ghost" pendingLabel="Dismissing…">
-                        Dismiss
-                      </SubmitButton>
-                    </form>
-                  </div>
-                </ActionGroup>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {decided.length > 0 && (
-        <>
-          <h2 style={{ fontSize: "1rem" }}>Previously reviewed</h2>
-          <table className="dash-table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Type</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {decided.map((o) => (
-                <tr key={o.id}>
-                  <td>{o.title}</td>
-                  <td className="dash-muted">{TYPE_LABELS[o.type] ?? o.type}</td>
-                  <td>
-                    <span className={`dash-badge ${o.status === "approved" || o.status === "done" ? "success" : "danger"}`}>{o.status}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+      <OpportunityBrowser
+        cards={cards}
+        totalNewCount={totalNewCount}
+        viewState={viewState}
+        orgSlug={orgSlug}
+        canAct={canAct}
+        acceptAction={acceptOpportunityAction}
+        dismissAction={dismissOpportunityAction}
+      />
     </>
   );
 }
