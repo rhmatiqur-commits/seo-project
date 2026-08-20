@@ -4,8 +4,9 @@ import { assertOwnedByOrganization } from "@/lib/api/authorize";
 import { getOpportunity } from "@/lib/db/opportunities";
 import { getSearchPerformanceOpportunityBySeoOpportunityId } from "@/lib/db/search-performance";
 import { getPageById } from "@/lib/db/pages";
-import { canManageSeoWork } from "@/lib/auth/permissions";
-import { acceptOpportunityAction, dismissOpportunityAction } from "@/app/dashboard/actions";
+import { getContentBriefBySeoOpportunityId } from "@/lib/db/content";
+import { canManageSeoWork, canEditContent } from "@/lib/auth/permissions";
+import { acceptOpportunityAction, dismissOpportunityAction, createContentBriefDashboardAction } from "@/app/dashboard/actions";
 import { OpportunityDetailPanel } from "@/app/dashboard/_components/OpportunityDetailPanel";
 import { buildOpportunityDetailViewModel } from "@/lib/dashboard/opportunity-detail";
 
@@ -28,9 +29,10 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   assertOwnedByOrganization(opportunity, organization.id, "Opportunity", id);
   if (!opportunity) notFound();
 
-  const [detector, page] = await Promise.all([
+  const [detector, page, contentBrief] = await Promise.all([
     getSearchPerformanceOpportunityBySeoOpportunityId(opportunity.id),
     opportunity.target_page_id ? getPageById(opportunity.target_page_id) : Promise.resolve(null),
+    getContentBriefBySeoOpportunityId(opportunity.id),
   ]);
 
   const viewModel = buildOpportunityDetailViewModel(opportunity, detector, page);
@@ -43,6 +45,9 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
       canAct={canAct}
       acceptAction={acceptOpportunityAction}
       dismissAction={dismissOpportunityAction}
+      contentBriefId={contentBrief?.id ?? null}
+      canCreateContent={canEditContent(membership.role)}
+      createContentAction={createContentBriefDashboardAction}
     />
   );
 }

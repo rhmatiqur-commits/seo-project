@@ -10,6 +10,7 @@ import { recordSeoActionForCompletedTask } from "@/lib/jobs/handlers/record-seo-
 import { triggerJob } from "@/lib/jobs/trigger";
 import {
   getContentBrief,
+  getContentBriefBySeoOpportunityId,
   getContentJob,
   getContentVersionById,
   getLatestContentVersionForJob,
@@ -17,6 +18,8 @@ import {
   insertContentJob,
   updateContentJobStatus,
 } from "@/lib/db/content";
+import { createContentBriefForOpportunity } from "@/lib/content/create-brief";
+import { isContentEligibleOpportunityType } from "@/lib/content/eligibility";
 import { getContentProvider } from "@/lib/content/get-provider";
 import { canTransitionContentJob } from "@/lib/content/state-machine";
 import { recordPublicationAuditEvent } from "@/lib/db/publication-audit";
@@ -91,6 +94,48 @@ export async function dismissOpportunityAction(formData: FormData): Promise<void
   await updateOpportunityStatus(opportunityId, "rejected");
   revalidatePath(`/dashboard/${orgSlug}/opportunities`);
   redirect(`/dashboard/${orgSlug}/opportunities`);
+}
+
+/**
+ * Phase 7.1E: the first client-facing trigger for content_briefs creation —
+ * every prior caller of createContentBriefForOpportunity was admin-only
+ * (app/admin/actions.ts's createContentBriefAction). Named
+ * *Dashboard*Action, not createContentBriefAction, so its export can never
+ * collide with admin's identically-purposed action the way
+ * updateTaskStatusAction/generateContentAction/reviseContentAction did
+ * before the 7.1D Server Action manifest fix.
+ *
+ * Duplicate-creation safeguard: content_briefs has no unique constraint on
+ * seo_opportunity_id (nothing before this action ever needed one — the
+ * only prior caller was a single admin form with no retry path), so this
+ * is a find-or-create using the column's own existing index
+ * (content_briefs_seo_opportunity_id_idx) via
+ * getContentBriefBySeoOpportunityId — the same idiom
+ * getOrCreatePublicationForVersion/findActiveContentJobForBrief already use
+ * elsewhere in this file. A second click (or a second tab) never creates a
+ * second brief; it just lands on the one that already exists.
+ */
+export async function createContentBriefDashboardAction(formData: FormData): Promise<void> {
+  const orgSlug = String(formData.get("org_slug"));
+  const opportunityId = String(formData.get("opportunity_id"));
+  const { organization, membership } = await requireOrganizationMembership(orgSlug, "EDITOR");
+  if (!canEditContent(membership.role)) throw new PermissionError("You don't have permission to create content.");
+
+  const opportunity = await getOpportunity(opportunityId);
+  assertOwnedByOrganization(opportunity, organization.id, "Opportunity", opportunityId);
+  if (opportunity!.status !== "approved") {
+    throw new Error("This opportunity must be accepted before content can be created for it.");
+  }
+  if (!isContentEligibleOpportunityType(opportunity!.type)) {
+    throw new Error(`Opportunity type ${opportunity!.type} does not support content creation.`);
+  }
+
+  const existingBrief = await getContentBriefBySeoOpportunityId(opportunityId);
+  const brief = existingBrief ?? (await createContentBriefForOpportunity(opportunityId));
+
+  revalidatePath(`/dashboard/${orgSlug}/opportunities/${opportunityId}`);
+  revalidatePath(`/dashboard/${orgSlug}/content`);
+  redirect(`/dashboard/${orgSlug}/content/${brief.id}`);
 }
 
 // ---------------------------------------------------------------------------

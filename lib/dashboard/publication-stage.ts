@@ -9,8 +9,16 @@ import type { PublicationStatus } from "@/lib/supabase/types";
  * UNPUBLISHED outcomes. This is a pure, deterministic *display* mapping —
  * it never changes, reads, or writes the underlying enum, which stays
  * exactly as the database defines it.
+ *
+ * Phase 7.1E: two labels changed from their 7.1A originals. "Branch & PR"
+ * was raw GitHub jargon never translated for a client. "Approved" collided
+ * with the *content*-approval badge shown just above this stepper on the
+ * same page — same word, two different meanings (a content_job being
+ * APPROVED vs. a content_publication being ready to go live) — renamed to
+ * "Ready to publish" so the two concepts can never be confused for each
+ * other again. Nothing about the underlying stage boundaries changed.
  */
-export const PUBLICATION_STAGES = ["Draft", "Branch & PR", "Preview ready", "Approved", "Live"] as const;
+export const PUBLICATION_STAGES = ["Draft", "Preparing changes", "Preview ready", "Ready to publish", "Live"] as const;
 
 export interface PublicationStageInfo {
   /** Index into PUBLICATION_STAGES this status currently sits at. */

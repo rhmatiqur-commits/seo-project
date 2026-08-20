@@ -4,7 +4,11 @@ import { getPublicationStageInfo, PUBLICATION_STAGES } from "./publication-stage
 import type { PublicationStatus } from "@/lib/supabase/types";
 
 test("PUBLICATION_STAGES has exactly 5 stages, Draft through Live", () => {
-  assert.deepEqual(PUBLICATION_STAGES, ["Draft", "Branch & PR", "Preview ready", "Approved", "Live"]);
+  assert.deepEqual(PUBLICATION_STAGES, ["Draft", "Preparing changes", "Preview ready", "Ready to publish", "Live"]);
+});
+
+test("no stage label collides with the content-approval word 'Approved' (7.1E fix)", () => {
+  assert.ok(!PUBLICATION_STAGES.includes("Approved" as (typeof PUBLICATION_STAGES)[number]));
 });
 
 test("PENDING is stage 0 (Draft), not failed", () => {
@@ -13,7 +17,7 @@ test("PENDING is stage 0 (Draft), not failed", () => {
   assert.equal(info.failed, false);
 });
 
-test("the GitHub branch/commit/PR trio all map to stage 1 (Branch & PR)", () => {
+test("the GitHub branch/commit/PR trio all map to stage 1 (Preparing changes)", () => {
   for (const status of ["BRANCH_CREATED", "COMMITTED", "PR_CREATED"] as PublicationStatus[]) {
     assert.equal(getPublicationStageInfo(status).stageIndex, 1, `${status} should be stage 1`);
   }
@@ -25,7 +29,7 @@ test("PREVIEW_READY, DRAFTED and AWAITING_PRODUCTION_APPROVAL all map to stage 2
   }
 });
 
-test("MERGING is stage 3 (Approved)", () => {
+test("MERGING is stage 3 (Ready to publish)", () => {
   assert.equal(getPublicationStageInfo("MERGING").stageIndex, 3);
 });
 
