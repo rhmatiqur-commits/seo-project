@@ -574,3 +574,29 @@
   .dash { --dash-sidebar-w: 200px; }
   .dash-main { padding: var(--dash-space-5); }
 }
+
+/* ---- Phase 7.1E: rendered content draft (ContentBody) — the draft used to
+   show as raw Markdown source in a pre-wrap box; this is the same box,
+   styled for actual headings/paragraphs/lists instead of literal ## and **
+   characters. Scoped to .dash-content-body so it never affects any other
+   heading/list on the page. ---- */
+.dash-content-body {
+  background: var(--dash-bg); padding: var(--dash-space-4); border-radius: var(--dash-radius-sm);
+  max-height: 480px; overflow-y: auto; font-size: var(--dash-text-base); line-height: 1.6;
+}
+.dash-content-body > *:first-child { margin-top: 0; }
+.dash-content-body > *:last-child { margin-bottom: 0; }
+.dash-content-body h2, .dash-content-body h3, .dash-content-body h4 {
+  margin: var(--dash-space-5) 0 var(--dash-space-2); line-height: 1.3;
+}
+.dash-content-body h2 { font-size: var(--dash-text-lg); }
+.dash-content-body h3 { font-size: var(--dash-text-md); }
+.dash-content-body h4 { font-size: var(--dash-text-base); }
+.dash-content-body p { margin: 0 0 var(--dash-space-3); }
+.dash-content-body ul, .dash-content-body ol { margin: 0 0 var(--dash-space-3); padding-left: 1.4em; }
+.dash-content-body li { margin-bottom: 4px; }
+.dash-content-body a { color: var(--dash-primary-ink); }
+.dash-content-code {
+  background: var(--dash-neutral-soft); padding: var(--dash-space-3); border-radius: var(--dash-radius-sm);
+  font-size: var(--dash-text-sm); overflow-x: auto; margin: 0 0 var(--dash-space-3);
+}

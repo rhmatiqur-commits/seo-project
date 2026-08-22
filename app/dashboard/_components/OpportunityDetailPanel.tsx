@@ -10,6 +10,11 @@ export interface OpportunityDetailPanelProps {
   canAct: boolean;
   acceptAction: (formData: FormData) => Promise<void>;
   dismissAction: (formData: FormData) => Promise<void>;
+  /** The content_briefs.id already created for this opportunity, if any — null means none exists yet. */
+  contentBriefId: string | null;
+  /** canEditContent(membership.role) — the same gate generateContentAction already uses. */
+  canCreateContent: boolean;
+  createContentAction: (formData: FormData) => Promise<void>;
 }
 
 const STATUS_MESSAGE: Partial<Record<OpportunityDetailViewModel["status"], string>> = {
@@ -26,7 +31,16 @@ const STATUS_MESSAGE: Partial<Record<OpportunityDetailViewModel["status"], strin
  * Never renders priority_score, priority_components, detector_type, or any
  * internal id (spec section 6).
  */
-export function OpportunityDetailPanel({ opportunity: o, orgSlug, canAct, acceptAction, dismissAction }: OpportunityDetailPanelProps) {
+export function OpportunityDetailPanel({
+  opportunity: o,
+  orgSlug,
+  canAct,
+  acceptAction,
+  dismissAction,
+  contentBriefId,
+  canCreateContent,
+  createContentAction,
+}: OpportunityDetailPanelProps) {
   const statusMessage = STATUS_MESSAGE[o.status];
   return (
     <>
@@ -77,6 +91,24 @@ export function OpportunityDetailPanel({ opportunity: o, orgSlug, canAct, accept
         <section className="dash-section">
           <h2 className="dash-subsection-heading">What happens after acceptance</h2>
           <ContentPipelinePreview />
+          {o.status === "approved" &&
+            (contentBriefId ? (
+              <p style={{ marginTop: 12 }}>
+                <Link href={`/dashboard/${orgSlug}/content/${contentBriefId}`}>View content &rarr;</Link>
+              </p>
+            ) : canCreateContent ? (
+              <form action={createContentAction} style={{ marginTop: 12 }}>
+                <input type="hidden" name="org_slug" value={orgSlug} />
+                <input type="hidden" name="opportunity_id" value={o.id} />
+                <SubmitButton variant="secondary" pendingLabel="Creating…">
+                  Create content
+                </SubmitButton>
+              </form>
+            ) : (
+              <p className="dash-muted" style={{ fontSize: "0.85rem", marginTop: 12 }}>
+                Your team will prepare content for this.
+              </p>
+            ))}
         </section>
       )}
 

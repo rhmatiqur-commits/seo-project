@@ -52,6 +52,19 @@ export async function getContentBrief(id: string): Promise<ContentBriefRow | nul
   return data;
 }
 
+/** Phase 7.1E: the existing content_briefs_seo_opportunity_id_idx already
+ * indexes exactly this lookup — this is the find-or-create safeguard
+ * against creating two briefs for the same opportunity (mirrors
+ * findActiveContentJobForBrief/getOrCreatePublicationForVersion's own
+ * pattern elsewhere in this file/module). No new column, index, or
+ * constraint. */
+export async function getContentBriefBySeoOpportunityId(seoOpportunityId: string): Promise<ContentBriefRow | null> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("content_briefs").select("*").eq("seo_opportunity_id", seoOpportunityId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function listContentBriefsForWebsite(websiteId: string, limit = 50): Promise<ContentBriefRow[]> {
   const db = supabaseAdmin();
   const { data, error } = await db.from("content_briefs").select("*").eq("website_id", websiteId).order("created_at", { ascending: false }).limit(limit);
