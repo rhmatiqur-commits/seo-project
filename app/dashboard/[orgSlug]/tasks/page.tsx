@@ -1,12 +1,15 @@
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listTasksForWebsite } from "@/lib/db/tasks";
+import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
+import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
 import { canManageSeoWork } from "@/lib/auth/permissions";
 import { updateTaskStatusAction } from "@/app/dashboard/actions";
 import { SubmitButton } from "@/app/dashboard/_components/SubmitButton";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 import { taskStatusLabel, taskStatusTone, taskAttentionBucket, allTaskStatuses } from "@/lib/dashboard/task-status";
 import { splitVisible, DEFAULT_VISIBLE_PER_GROUP } from "@/lib/dashboard/opportunity-groups";
+import { buildOutcomeSummaryViewModel, type OutcomeSummaryViewModel } from "@/lib/dashboard/outcome-summary";
 import type { Database } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +19,15 @@ const STATUSES = allTaskStatuses();
 
 /** Phase 7.1F: extracted so "Needs your attention", "In progress", and
  * "Done" all render the exact same row shape — same convention 7.1E's
- * ContentTable helper used on the Content list. */
-function TaskTable({ tasks, orgSlug, canAct }: { tasks: TaskRow[]; orgSlug: string; canAct: boolean }) {
+ * ContentTable helper used on the Content list.
+ *
+ * Phase 7.2A: an optional Outcome column, keyed by task id — only ever
+ * passed for the "Done" table, since a task can only have an outcome once
+ * it's actually completed (or content it's linked to is published). Left
+ * undefined for "Needs your attention"/"In progress" so those tables render
+ * exactly as before rather than showing a column of "nothing to measure yet"
+ * badges on dozens of still-open rows. */
+function TaskTable({ tasks, orgSlug, canAct, outcomeByTaskId }: { tasks: TaskRow[]; orgSlug: string; canAct: boolean; outcomeByTaskId?: Map<string, OutcomeSummaryViewModel> }) {
   return (
     <div className="dash-table-wrap">
       <table className="dash-table responsive">
@@ -26,46 +36,61 @@ function TaskTable({ tasks, orgSlug, canAct }: { tasks: TaskRow[]; orgSlug: stri
             <th>Task</th>
             <th>Priority</th>
             <th>Status</th>
+            {outcomeByTaskId && <th>Outcome</th>}
             {canAct && <th>Update</th>}
           </tr>
         </thead>
         <tbody>
-          {tasks.map((t) => (
-            <tr key={t.id}>
-              <td data-label="Task">
-                <div style={{ fontWeight: 600 }}>{t.title}</div>
-                {t.description && (
-                  <div className="dash-muted" style={{ fontSize: "0.82rem" }}>
-                    {t.description}
-                  </div>
-                )}
-              </td>
-              <td className="dash-muted" data-label="Priority">
-                {t.priority}
-              </td>
-              <td data-label="Status">
-                <span className={`dash-badge ${taskStatusTone(t.status)}`}>{taskStatusLabel(t.status)}</span>
-              </td>
-              {canAct && (
-                <td data-label="Update">
-                  <form action={updateTaskStatusAction} className="dash-row" style={{ display: "flex", gap: 6 }}>
-                    <input type="hidden" name="org_slug" value={orgSlug} />
-                    <input type="hidden" name="task_id" value={t.id} />
-                    <select name="status" defaultValue={t.status} style={{ fontSize: "0.8rem" }}>
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {taskStatusLabel(s)}
-                        </option>
-                      ))}
-                    </select>
-                    <SubmitButton variant="secondary" pendingLabel="Saving…" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
-                      Save
-                    </SubmitButton>
-                  </form>
+          {tasks.map((t) => {
+            const outcome = outcomeByTaskId?.get(t.id);
+            return (
+              <tr key={t.id}>
+                <td data-label="Task">
+                  <div style={{ fontWeight: 600 }}>{t.title}</div>
+                  {t.description && (
+                    <div className="dash-muted" style={{ fontSize: "0.82rem" }}>
+                      {t.description}
+                    </div>
+                  )}
                 </td>
-              )}
-            </tr>
-          ))}
+                <td className="dash-muted" data-label="Priority">
+                  {t.priority}
+                </td>
+                <td data-label="Status">
+                  <span className={`dash-badge ${taskStatusTone(t.status)}`}>{taskStatusLabel(t.status)}</span>
+                </td>
+                {outcomeByTaskId && (
+                  <td data-label="Outcome">
+                    {outcome ? (
+                      <span className={`dash-badge ${outcome.tone}`}>{outcome.label}</span>
+                    ) : (
+                      <span className="dash-muted" style={{ fontSize: "0.8rem" }}>
+                        &mdash;
+                      </span>
+                    )}
+                  </td>
+                )}
+                {canAct && (
+                  <td data-label="Update">
+                    <form action={updateTaskStatusAction} className="dash-row" style={{ display: "flex", gap: 6 }}>
+                      <input type="hidden" name="org_slug" value={orgSlug} />
+                      <input type="hidden" name="task_id" value={t.id} />
+                      <select name="status" defaultValue={t.status} style={{ fontSize: "0.8rem" }}>
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {taskStatusLabel(s)}
+                          </option>
+                        ))}
+                      </select>
+                      <SubmitButton variant="secondary" pendingLabel="Saving…" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
+                        Save
+                      </SubmitButton>
+                    </form>
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -93,8 +118,37 @@ export default async function TasksPage({ params }: { params: Promise<{ orgSlug:
   const { orgSlug } = await params;
   const { organization, membership } = await requireOrganizationMembership(orgSlug);
   const website = await getPrimaryWebsiteForOrganization(organization.id);
-  const tasks = website ? await listTasksForWebsite(website.id) : [];
+  const [tasks, actions, outcomesByAction] = website
+    ? await Promise.all([listTasksForWebsite(website.id), listSeoActionsForWebsite(website.id), listLatestOutcomesByActionForWebsite(website.id)])
+    : [[], [], new Map()];
   const canAct = canManageSeoWork(membership.role);
+
+  // Phase 7.2A: a task can only ever have a seo_actions row once it's
+  // actually completed (or the content it's linked to is published, which
+  // now auto-completes it too — lib/jobs/handlers/record-seo-action.ts) —
+  // so this map is only ever non-empty for entries in the "Done" bucket.
+  const actionByTaskId = new Map(actions.filter((a) => a.seo_task_id).map((a) => [a.seo_task_id as string, a]));
+  const outcomeByTaskId = new Map<string, OutcomeSummaryViewModel>();
+  for (const t of tasks) {
+    const action = actionByTaskId.get(t.id);
+    if (!action) continue;
+    const outcome = outcomesByAction.get(action.id) ?? null;
+    outcomeByTaskId.set(
+      t.id,
+      buildOutcomeSummaryViewModel({
+        opportunityType: t.type,
+        hasAction: true,
+        outcome: outcome
+          ? {
+              classification: outcome.classification,
+              classificationReasoning: outcome.classification_reasoning,
+              recommendation: outcome.recommendation,
+              measurementWindowDays: outcome.measurement_window_days,
+            }
+          : null,
+      })
+    );
+  }
 
   const needsYou = tasks.filter((t) => taskAttentionBucket(t.status) === "needs-you");
   const inProgress = tasks.filter((t) => taskAttentionBucket(t.status) === "in-progress");
@@ -144,7 +198,7 @@ export default async function TasksPage({ params }: { params: Promise<{ orgSlug:
         <details className="dash-section">
           <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.85rem", color: "var(--dash-text-muted)" }}>Done ({done.length})</summary>
           <div style={{ marginTop: 10 }}>
-            <TaskTable tasks={done} orgSlug={orgSlug} canAct={canAct} />
+            <TaskTable tasks={done} orgSlug={orgSlug} canAct={canAct} outcomeByTaskId={outcomeByTaskId} />
           </div>
         </details>
       )}

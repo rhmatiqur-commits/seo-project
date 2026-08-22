@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { OpportunityDetailViewModel } from "@/lib/dashboard/opportunity-detail";
-import { OPPORTUNITY_TASK_STAGES, opportunityTaskStageInfo, taskStatusLabel } from "@/lib/dashboard/task-status";
+import { OPPORTUNITY_TASK_STAGES, opportunityTaskStageInfo, taskStatusLabel, taskStatusTone } from "@/lib/dashboard/task-status";
+import { isMeasurableOpportunityType } from "@/lib/outcomes/action-type";
+import type { OutcomeSummaryViewModel } from "@/lib/dashboard/outcome-summary";
 import { ActionGroup } from "./ActionGroup";
 import { SubmitButton } from "./SubmitButton";
 import { ContentPipelinePreview } from "./ContentPipelinePreview";
@@ -19,6 +21,8 @@ export interface OpportunityDetailPanelProps {
   createContentAction: (formData: FormData) => Promise<void>;
   /** The linked seo_tasks row's status, if one exists — null means no task exists (an honest state, never invented). */
   taskStatus: TaskStatus | null;
+  /** Phase 7.2A: what, if anything, seo_action_outcomes says about this opportunity's own action — see lib/dashboard/outcome-summary.ts for the 4-state model. */
+  outcomeSummary: OutcomeSummaryViewModel;
 }
 
 const STATUS_MESSAGE: Partial<Record<OpportunityDetailViewModel["status"], string>> = {
@@ -45,8 +49,10 @@ export function OpportunityDetailPanel({
   canCreateContent,
   createContentAction,
   taskStatus,
+  outcomeSummary,
 }: OpportunityDetailPanelProps) {
   const statusMessage = STATUS_MESSAGE[o.status];
+  const measurable = isMeasurableOpportunityType(o.type);
   return (
     <>
       <p style={{ marginBottom: 12 }}>
@@ -117,7 +123,7 @@ export function OpportunityDetailPanel({
         </section>
       )}
 
-      {!o.contentEligible && o.status === "approved" && (
+      {!o.contentEligible && o.status === "approved" && measurable && (
         <section className="dash-section">
           <h2 className="dash-subsection-heading">Task status</h2>
           {taskStatus ? (
@@ -154,6 +160,62 @@ export function OpportunityDetailPanel({
             <p className="dash-muted" style={{ fontSize: "0.85rem" }}>
               No task has been created for this opportunity yet.
             </p>
+          )}
+        </section>
+      )}
+
+      {/* Phase 7.2A: the 3 investigative types (RESEARCH_REQUIRED,
+          INVESTIGATE_DECLINE, INVESTIGATE_OPPORTUNITY) never produce a
+          seo_actions row and never will — the 3-stage stepper above implies
+          a kind of tracking that doesn't apply to them, so they get their
+          own, more honest presentation instead of sharing it. */}
+      {!o.contentEligible && o.status === "approved" && !measurable && (
+        <section className="dash-section">
+          <h2 className="dash-subsection-heading">Investigation status</h2>
+          {taskStatus ? (
+            <>
+              <span className={`dash-badge ${taskStatusTone(taskStatus)}`}>{taskStatusLabel(taskStatus)}</span>
+              <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 8 }}>
+                This is a research prompt, not a tracked SEO action — accepting it doesn&apos;t start any automatic measurement. If it
+                leads to a specific fix, that becomes its own opportunity. You can update its status on the{" "}
+                <Link href={`/dashboard/${orgSlug}/tasks`}>Tasks page</Link>.
+              </p>
+            </>
+          ) : (
+            <p className="dash-muted" style={{ fontSize: "0.85rem" }}>
+              No task has been created for this opportunity yet.
+            </p>
+          )}
+        </section>
+      )}
+
+      {o.status === "approved" && measurable && (
+        <section className="dash-section">
+          <h2 className="dash-subsection-heading">Outcome</h2>
+          <span className={`dash-badge ${outcomeSummary.tone}`}>{outcomeSummary.label}</span>
+          {outcomeSummary.state === "not-yet-live" && (
+            <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 8 }}>
+              {o.contentEligible
+                ? "Once this page is published, we'll start measuring what happens to it in Google Search Console."
+                : "Once this task is marked done, we'll start measuring what happens to the affected page in Google Search Console."}
+            </p>
+          )}
+          {outcomeSummary.state === "measuring" && (
+            <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 8 }}>
+              We're waiting for enough Search Console data to compare against — this can take a few weeks. Check{" "}
+              <Link href={`/dashboard/${orgSlug}/outcomes`}>Outcomes</Link> for the full picture once it's ready.
+            </p>
+          )}
+          {outcomeSummary.state === "classified" && (
+            <>
+              <p style={{ fontSize: "0.86rem", marginTop: 12 }}>{outcomeSummary.reasoning}</p>
+              <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 6 }}>
+                Measured over {outcomeSummary.measurementWindowDays} days &middot; {outcomeSummary.recommendationLabel}
+              </p>
+              <p style={{ fontSize: "0.82rem", marginTop: 8 }}>
+                <Link href={`/dashboard/${orgSlug}/outcomes`}>See full outcome details &rarr;</Link>
+              </p>
+            </>
           )}
         </section>
       )}

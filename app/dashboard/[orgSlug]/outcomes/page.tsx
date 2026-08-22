@@ -4,31 +4,9 @@ import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
+import { classificationLabel, classificationTone, recommendationLabel, OUTCOME_MEASURING_LABEL } from "@/lib/dashboard/outcome-labels";
 
 export const dynamic = "force-dynamic";
-
-const CLASSIFICATION_TONE: Record<string, string> = {
-  POSITIVE: "success",
-  NEGATIVE: "danger",
-  MIXED: "warning",
-  INCONCLUSIVE: "info",
-  INSUFFICIENT_DATA: "info",
-};
-
-const CLASSIFICATION_LABEL: Record<string, string> = {
-  POSITIVE: "Improved",
-  NEGATIVE: "Declined",
-  MIXED: "Mixed result",
-  INCONCLUSIVE: "No clear change yet",
-  INSUFFICIENT_DATA: "Still gathering data",
-};
-
-const RECOMMENDATION_LABEL: Record<string, string> = {
-  MONITOR: "Monitoring — no action needed",
-  INVESTIGATE_CTR: "Worth investigating: click-through rate",
-  DIAGNOSE_DECLINE: "Needs a closer look",
-  WAIT_FOR_MORE_DATA: "Waiting for more data",
-};
 
 function fmt(date: string | null): string {
   return date ? new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "-";
@@ -79,9 +57,9 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
                   </div>
                 </div>
                 {outcome ? (
-                  <span className={`dash-badge ${CLASSIFICATION_TONE[outcome.classification]}`}>{CLASSIFICATION_LABEL[outcome.classification]}</span>
+                  <span className={`dash-badge ${classificationTone(outcome.classification)}`}>{classificationLabel(outcome.classification)}</span>
                 ) : (
-                  <span className="dash-badge info">Baseline being established</span>
+                  <span className="dash-badge info">{OUTCOME_MEASURING_LABEL}</span>
                 )}
               </div>
               {outcome && (
@@ -108,7 +86,7 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
                     </div>
                   </div>
                   <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 10 }}>
-                    Measured over {outcome.measurement_window_days} days &middot; {RECOMMENDATION_LABEL[outcome.recommendation]}
+                    Measured over {outcome.measurement_window_days} days &middot; {recommendationLabel(outcome.recommendation)}
                   </p>
                   {outcome.ai_interpretation && (
                     <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 6, fontStyle: "italic" }}>
