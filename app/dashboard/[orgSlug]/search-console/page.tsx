@@ -3,6 +3,7 @@ import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { getSearchConsoleStatsForWebsite, listSearchConsoleMetricsForWebsite } from "@/lib/db/search-console";
 import { getSearchConsoleConnection } from "@/lib/db/search-console";
+import { canManageIntegrations } from "@/lib/auth/permissions";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 
 export const dynamic = "force-dynamic";
@@ -13,12 +14,13 @@ function fmt(date: string | null): string {
 
 export default async function SearchConsolePage({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
-  const { organization } = await requireOrganizationMembership(orgSlug);
+  const { organization, membership } = await requireOrganizationMembership(orgSlug);
   const website = await getPrimaryWebsiteForOrganization(organization.id);
   const [connection, stats, rows] = website
     ? await Promise.all([getSearchConsoleConnection(website.id), getSearchConsoleStatsForWebsite(website.id), listSearchConsoleMetricsForWebsite(website.id, 50)])
     : [null, null, []];
   const isConnected = connection?.status === "active";
+  const canConnect = canManageIntegrations(membership.role);
 
   return (
     <>
@@ -42,9 +44,17 @@ export default async function SearchConsolePage({ params }: { params: Promise<{ 
               <p className="dash-muted" style={{ fontSize: "0.88rem", margin: 0 }}>Data starts appearing here automatically on its normal daily schedule — no further setup on your side.</p>
             </div>
           </div>
-          <p className="dash-muted" style={{ marginTop: 18 }}>
-            Not connected yet — contact your account manager to connect Google Search Console.
-          </p>
+          {canConnect ? (
+            <p style={{ marginTop: 18 }}>
+              <Link className="dash-btn" href={`/dashboard/${orgSlug}/settings`}>
+                Go to Settings to connect
+              </Link>
+            </p>
+          ) : (
+            <p className="dash-muted" style={{ marginTop: 18 }}>
+              Not connected yet — ask an Owner on your team to connect Google Search Console from Settings.
+            </p>
+          )}
         </div>
       )}
 

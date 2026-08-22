@@ -64,5 +64,13 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     scope: tokens.scope,
   });
 
-  return NextResponse.redirect(new URL(`/admin/websites/${payload.websiteId}/search-console`, req.nextUrl.origin));
+  // Phase 7.2C-B: dashboardOrgSlug is only ever present on a state token
+  // signed by app/dashboard/[orgSlug]/search-console/connect/route.ts (a
+  // dashboard-session-authenticated flow) — every existing admin-initiated
+  // flow signs a state without it and lands on the exact same admin page as
+  // before this change.
+  const redirectPath = payload.dashboardOrgSlug
+    ? `/dashboard/${payload.dashboardOrgSlug}/settings`
+    : `/admin/websites/${payload.websiteId}/search-console`;
+  return NextResponse.redirect(new URL(redirectPath, req.nextUrl.origin));
 });
