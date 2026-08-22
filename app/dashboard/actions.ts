@@ -25,6 +25,7 @@ import { canTransitionContentJob } from "@/lib/content/state-machine";
 import { recordPublicationAuditEvent } from "@/lib/db/publication-audit";
 import { getOrCreatePublicationForVersion } from "@/lib/db/content-publications";
 import { getCmsConnectionForWebsite, upsertGitHubToken, selectGitHubRepository, markConnectionTested, getDecryptedCredential } from "@/lib/db/cms-connections";
+import { selectSearchConsoleSite } from "@/lib/db/search-console";
 import { createPublishingProvider, buildPublishingConnectionConfig } from "@/lib/publishing/get-provider";
 import { insertInvitation, getInvitationById, revokeInvitation } from "@/lib/db/invitations";
 import { getMembershipById, deleteMembership, updateMembershipRole, countOwners } from "@/lib/db/memberships";
@@ -391,6 +392,28 @@ export async function selectGitHubRepositoryDashboardAction(formData: FormData):
   if (!website) throw new Error("No website is configured for this organisation yet.");
 
   await selectGitHubRepository({ websiteId: website.id, owner, repo, productionBranch, publicationMode, accountLogin: owner, contentAdapter });
+  revalidatePath(`/dashboard/${orgSlug}/settings`);
+  redirect(`/dashboard/${orgSlug}/settings`);
+}
+
+/**
+ * Phase 7.2C-B: the dashboard-side half of Search Console's two-step
+ * connect flow (OAuth grant, then pick which verified property to attach) —
+ * mirrors selectGitHubRepositoryDashboardAction's shape exactly, and reuses
+ * the same selectSearchConsoleSite(websiteId, siteUrl) the admin flow
+ * already calls (lib/db/search-console.ts), unchanged.
+ */
+export async function selectSearchConsoleSiteDashboardAction(formData: FormData): Promise<void> {
+  const orgSlug = String(formData.get("org_slug"));
+  const siteUrl = String(formData.get("site_url") ?? "").trim();
+  const { organization, membership } = await requireOrganizationMembership(orgSlug, "OWNER");
+  if (!canManageIntegrations(membership.role)) throw new PermissionError("You don't have permission to manage integrations.");
+  if (!siteUrl) throw new Error("Choose a Search Console property.");
+
+  const website = await getPrimaryWebsiteForOrganization(organization.id);
+  if (!website) throw new Error("No website is configured for this organisation yet.");
+
+  await selectSearchConsoleSite(website.id, siteUrl);
   revalidatePath(`/dashboard/${orgSlug}/settings`);
   redirect(`/dashboard/${orgSlug}/settings`);
 }

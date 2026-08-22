@@ -8,6 +8,7 @@ import { listContentJobsForWebsite, listContentBriefsForWebsite, listContentJobs
 import { listPublicationsForWebsite } from "@/lib/db/content-publications";
 import { getSeoActionOutcomeStatsForWebsite } from "@/lib/db/seo-action-outcomes";
 import { listAlertsForWebsite } from "@/lib/db/seo-alerts";
+import { canManageIntegrations } from "@/lib/auth/permissions";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 import { DeltaStat } from "@/app/dashboard/_components/DeltaStat";
 import { contentStatusLabel, publicationStatusLabel } from "@/lib/dashboard/status-labels";
@@ -43,8 +44,9 @@ function fmt(date: string | null): string {
  */
 export default async function OrganizationHomePage({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
-  const { organization } = await requireOrganizationMembership(orgSlug);
+  const { organization, membership } = await requireOrganizationMembership(orgSlug);
   const website = await getPrimaryWebsiteForOrganization(organization.id);
+  const canConnectSearchConsole = canManageIntegrations(membership.role);
 
   if (!website) {
     return (
@@ -109,7 +111,15 @@ export default async function OrganizationHomePage({ params }: { params: Promise
         </div>
         {gscStats.totalRows === 0 && (
           <div className="dash-notice" style={{ marginTop: 16, marginBottom: 0 }}>
-            No Google Search Console data yet — contact your account manager to connect Google Search Console.
+            No Google Search Console data yet
+            {canConnectSearchConsole ? (
+              <>
+                {" "}
+                — connect it from <Link href={`/dashboard/${orgSlug}/settings`}>Settings</Link> to see real performance here.
+              </>
+            ) : (
+              " — ask an Owner on your team to connect Google Search Console from Settings."
+            )}
           </div>
         )}
       </section>

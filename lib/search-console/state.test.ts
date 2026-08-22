@@ -38,3 +38,24 @@ test("verifyState rejects malformed tokens", () => {
   assert.equal(verifyState("", SECRET), null);
   assert.equal(verifyState("a.b.c", SECRET), null);
 });
+
+test("Phase 7.2C-B: a token signed without dashboardOrgSlug round-trips without it (admin-initiated flow, unchanged)", () => {
+  const token = signState(PAYLOAD, SECRET, 10 * 60 * 1000, 1_000_000);
+  const result = verifyState(token, SECRET, 1_000_000 + 1000);
+  assert.deepEqual(result, PAYLOAD);
+  assert.equal(Object.hasOwn(result ?? {}, "dashboardOrgSlug"), false);
+});
+
+test("Phase 7.2C-B: a token signed with dashboardOrgSlug carries it through unchanged (dashboard-initiated flow)", () => {
+  const withOrgSlug = { ...PAYLOAD, dashboardOrgSlug: "cv-central" };
+  const token = signState(withOrgSlug, SECRET, 10 * 60 * 1000, 1_000_000);
+  const result = verifyState(token, SECRET, 1_000_000 + 1000);
+  assert.deepEqual(result, withOrgSlug);
+});
+
+test("Phase 7.2C-B: a tampered dashboardOrgSlug (attacker tries to redirect a different org) is rejected by the signature check", () => {
+  const token = signState({ ...PAYLOAD, dashboardOrgSlug: "cv-central" }, SECRET, 10 * 60 * 1000, 1_000_000);
+  const [, signature] = token.split(".");
+  const tamperedBody = Buffer.from(JSON.stringify({ ...PAYLOAD, dashboardOrgSlug: "attacker-org", exp: 2_000_000 }), "utf8").toString("base64url");
+  assert.equal(verifyState(`${tamperedBody}.${signature}`, SECRET, 1_000_000 + 1000), null);
+});

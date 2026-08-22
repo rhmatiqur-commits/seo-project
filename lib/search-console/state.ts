@@ -15,6 +15,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 export interface SearchConsoleStatePayload {
   websiteId: string;
   organizationId: string;
+  /** Phase 7.2C-B: present only when this flow was started from the client
+   * dashboard (never from /admin) — lets the callback route send that client
+   * back to their own Settings page instead of the admin-only
+   * /admin/websites/[id]/search-console page. Absent (undefined) for every
+   * existing admin-initiated flow, which behaves exactly as before this
+   * field was added. */
+  dashboardOrgSlug?: string;
 }
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000; // 10 minutes — long enough for a human to complete the Google consent screen.
@@ -51,12 +58,15 @@ export function verifyState(token: string, secret: string, now: number = Date.no
 
   try {
     const body = Buffer.from(encodedBody, "base64url").toString("utf8");
-    const parsed = JSON.parse(body) as { websiteId?: unknown; organizationId?: unknown; exp?: unknown };
+    const parsed = JSON.parse(body) as { websiteId?: unknown; organizationId?: unknown; dashboardOrgSlug?: unknown; exp?: unknown };
     if (typeof parsed.websiteId !== "string" || typeof parsed.organizationId !== "string" || typeof parsed.exp !== "number") {
       return null;
     }
+    if (parsed.dashboardOrgSlug !== undefined && typeof parsed.dashboardOrgSlug !== "string") return null;
     if (now > parsed.exp) return null;
-    return { websiteId: parsed.websiteId, organizationId: parsed.organizationId };
+    return parsed.dashboardOrgSlug !== undefined
+      ? { websiteId: parsed.websiteId, organizationId: parsed.organizationId, dashboardOrgSlug: parsed.dashboardOrgSlug }
+      : { websiteId: parsed.websiteId, organizationId: parsed.organizationId };
   } catch {
     return null;
   }
