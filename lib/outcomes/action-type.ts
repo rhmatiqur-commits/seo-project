@@ -42,3 +42,18 @@ export function deriveActionType(opportunityType: OpportunityType, detectorType:
   }
   return OPPORTUNITY_TYPE_TO_ACTION_TYPE[opportunityType] ?? null;
 }
+
+/**
+ * Phase 7.2A: "can this opportunity/task type ever become measurable at
+ * all" — a plain lookup on the same map deriveActionType already uses (no
+ * second list to keep in sync). True for the 6 types that produce a real
+ * seo_actions row somewhere in this codebase (2 content-eligible + 4
+ * non-content); false for the 3 investigative types (RESEARCH_REQUIRED,
+ * INVESTIGATE_DECLINE, INVESTIGATE_OPPORTUNITY), which never do, by design.
+ * Deliberately ignores detector_type — that only ever narrows *which*
+ * measurable action_type gets recorded, never turns an unmeasurable
+ * opportunity type into a measurable one.
+ */
+export function isMeasurableOpportunityType(opportunityType: OpportunityType): boolean {
+  return OPPORTUNITY_TYPE_TO_ACTION_TYPE[opportunityType] !== undefined;
+}

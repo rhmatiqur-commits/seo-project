@@ -6,10 +6,13 @@ import { getSearchPerformanceOpportunityBySeoOpportunityId } from "@/lib/db/sear
 import { getPageById } from "@/lib/db/pages";
 import { getContentBriefBySeoOpportunityId } from "@/lib/db/content";
 import { getTaskForOpportunity } from "@/lib/db/tasks";
+import { getSeoActionForTask } from "@/lib/db/seo-actions";
+import { getLatestOutcomeForAction } from "@/lib/db/seo-action-outcomes";
 import { canManageSeoWork, canEditContent } from "@/lib/auth/permissions";
 import { acceptOpportunityAction, dismissOpportunityAction, createContentBriefDashboardAction } from "@/app/dashboard/actions";
 import { OpportunityDetailPanel } from "@/app/dashboard/_components/OpportunityDetailPanel";
 import { buildOpportunityDetailViewModel } from "@/lib/dashboard/opportunity-detail";
+import { buildOutcomeSummaryViewModel } from "@/lib/dashboard/outcome-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,26 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   const viewModel = buildOpportunityDetailViewModel(opportunity, detector, page);
   const canAct = canManageSeoWork(membership.role);
 
+  // Phase 7.2A: same seo_task_id -> seo_actions -> seo_action_outcomes chain
+  // record-seo-action.ts already writes to; this page only ever reads it.
+  // Sequential (not Promise.all'd with the fetches above) since each step
+  // depends on the previous one's result — a single opportunity detail page
+  // load, not a list, so this isn't a meaningful N+1 concern.
+  const action = task ? await getSeoActionForTask(task.id) : null;
+  const outcome = action ? await getLatestOutcomeForAction(action.id) : null;
+  const outcomeSummary = buildOutcomeSummaryViewModel({
+    opportunityType: opportunity.type,
+    hasAction: action !== null,
+    outcome: outcome
+      ? {
+          classification: outcome.classification,
+          classificationReasoning: outcome.classification_reasoning,
+          recommendation: outcome.recommendation,
+          measurementWindowDays: outcome.measurement_window_days,
+        }
+      : null,
+  });
+
   return (
     <OpportunityDetailPanel
       opportunity={viewModel}
@@ -51,6 +74,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
       canCreateContent={canEditContent(membership.role)}
       createContentAction={createContentBriefDashboardAction}
       taskStatus={task?.status ?? null}
+      outcomeSummary={outcomeSummary}
     />
   );
 }
