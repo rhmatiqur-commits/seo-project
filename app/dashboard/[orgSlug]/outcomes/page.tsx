@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
@@ -51,6 +52,9 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
     <>
       <h1 className="dash-page-title">Outcomes</h1>
       <p className="dash-page-subtitle">What happened after each SEO action we took, measured against real Google Search Console data.</p>
+      <p className="dash-muted" style={{ fontSize: "0.85rem", marginTop: -8 }}>
+        Looking for how the whole website is trending instead of one specific action? See <Link href={`/dashboard/${orgSlug}/reports`}>Reports</Link>.
+      </p>
       <div className="dash-notice">
         These describe <strong>observed change following an action</strong> — never a claim that the action alone caused it. SEO
         performance is affected by many factors (algorithm updates, seasonality, competitors) beyond what any single change controls.

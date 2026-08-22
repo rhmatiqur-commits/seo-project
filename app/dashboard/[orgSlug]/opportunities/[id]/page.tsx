@@ -5,6 +5,7 @@ import { getOpportunity } from "@/lib/db/opportunities";
 import { getSearchPerformanceOpportunityBySeoOpportunityId } from "@/lib/db/search-performance";
 import { getPageById } from "@/lib/db/pages";
 import { getContentBriefBySeoOpportunityId } from "@/lib/db/content";
+import { getTaskForOpportunity } from "@/lib/db/tasks";
 import { canManageSeoWork, canEditContent } from "@/lib/auth/permissions";
 import { acceptOpportunityAction, dismissOpportunityAction, createContentBriefDashboardAction } from "@/app/dashboard/actions";
 import { OpportunityDetailPanel } from "@/app/dashboard/_components/OpportunityDetailPanel";
@@ -29,10 +30,11 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   assertOwnedByOrganization(opportunity, organization.id, "Opportunity", id);
   if (!opportunity) notFound();
 
-  const [detector, page, contentBrief] = await Promise.all([
+  const [detector, page, contentBrief, task] = await Promise.all([
     getSearchPerformanceOpportunityBySeoOpportunityId(opportunity.id),
     opportunity.target_page_id ? getPageById(opportunity.target_page_id) : Promise.resolve(null),
     getContentBriefBySeoOpportunityId(opportunity.id),
+    getTaskForOpportunity(opportunity.id),
   ]);
 
   const viewModel = buildOpportunityDetailViewModel(opportunity, detector, page);
@@ -48,6 +50,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
       contentBriefId={contentBrief?.id ?? null}
       canCreateContent={canEditContent(membership.role)}
       createContentAction={createContentBriefDashboardAction}
+      taskStatus={task?.status ?? null}
     />
   );
 }

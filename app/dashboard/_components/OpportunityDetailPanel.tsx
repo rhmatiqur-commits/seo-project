@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { OpportunityDetailViewModel } from "@/lib/dashboard/opportunity-detail";
+import { OPPORTUNITY_TASK_STAGES, opportunityTaskStageInfo, taskStatusLabel } from "@/lib/dashboard/task-status";
 import { ActionGroup } from "./ActionGroup";
 import { SubmitButton } from "./SubmitButton";
 import { ContentPipelinePreview } from "./ContentPipelinePreview";
+import type { TaskStatus } from "@/lib/supabase/types";
 
 export interface OpportunityDetailPanelProps {
   opportunity: OpportunityDetailViewModel;
@@ -15,6 +17,8 @@ export interface OpportunityDetailPanelProps {
   /** canEditContent(membership.role) — the same gate generateContentAction already uses. */
   canCreateContent: boolean;
   createContentAction: (formData: FormData) => Promise<void>;
+  /** The linked seo_tasks row's status, if one exists — null means no task exists (an honest state, never invented). */
+  taskStatus: TaskStatus | null;
 }
 
 const STATUS_MESSAGE: Partial<Record<OpportunityDetailViewModel["status"], string>> = {
@@ -40,6 +44,7 @@ export function OpportunityDetailPanel({
   contentBriefId,
   canCreateContent,
   createContentAction,
+  taskStatus,
 }: OpportunityDetailPanelProps) {
   const statusMessage = STATUS_MESSAGE[o.status];
   return (
@@ -109,6 +114,47 @@ export function OpportunityDetailPanel({
                 Your team will prepare content for this.
               </p>
             ))}
+        </section>
+      )}
+
+      {!o.contentEligible && o.status === "approved" && (
+        <section className="dash-section">
+          <h2 className="dash-subsection-heading">Task status</h2>
+          {taskStatus ? (
+            <>
+              <div className="dash-stepper" role="list" aria-label="Task progress">
+                {OPPORTUNITY_TASK_STAGES.map((label, i) => {
+                  const info = opportunityTaskStageInfo(taskStatus);
+                  const isFailedHere = info.cancelled && i === info.stageIndex;
+                  const isDone = !info.cancelled && i < info.stageIndex;
+                  const isCurrent = !info.cancelled && i === info.stageIndex;
+                  const stepClass = isFailedHere ? "failed" : isDone ? "done" : isCurrent ? "current" : "";
+                  return (
+                    <span className="dash-stepper-step-wrap" key={label} style={{ display: "flex", alignItems: "center" }}>
+                      <span className={`dash-stepper-step ${stepClass}`.trim()} role="listitem">
+                        <span className="dash-stepper-dot" aria-hidden="true" />
+                        <span className="dash-stepper-label">{label}</span>
+                      </span>
+                      {i < OPPORTUNITY_TASK_STAGES.length - 1 && <span className="dash-stepper-connector" aria-hidden="true" />}
+                    </span>
+                  );
+                })}
+                {taskStatus === "cancelled" && (
+                  <span className="dash-badge danger" style={{ marginLeft: 8 }}>
+                    {taskStatusLabel(taskStatus)}
+                  </span>
+                )}
+              </div>
+              <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 8 }}>
+                Accepting doesn&apos;t fix this on its own — it&apos;s tracked as a task for your team. You can also follow it on the{" "}
+                <Link href={`/dashboard/${orgSlug}/tasks`}>Tasks page</Link>.
+              </p>
+            </>
+          ) : (
+            <p className="dash-muted" style={{ fontSize: "0.85rem" }}>
+              No task has been created for this opportunity yet.
+            </p>
+          )}
         </section>
       )}
 

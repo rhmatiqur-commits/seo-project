@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
-import { getSearchConsoleStatsForWebsite } from "@/lib/db/search-console";
+import { getSearchConsoleStatsForWebsite, listSearchConsoleMetricsForWebsiteInRange } from "@/lib/db/search-console";
 import { listIssuesForWebsite } from "@/lib/db/audits";
 import { listOpportunitiesForWebsite } from "@/lib/db/opportunities";
 import { listContentJobsForWebsite, listContentBriefsForWebsite, listContentJobsForBrief } from "@/lib/db/content";
@@ -9,7 +9,10 @@ import { listPublicationsForWebsite } from "@/lib/db/content-publications";
 import { getSeoActionOutcomeStatsForWebsite } from "@/lib/db/seo-action-outcomes";
 import { listAlertsForWebsite } from "@/lib/db/seo-alerts";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
+import { DeltaStat } from "@/app/dashboard/_components/DeltaStat";
 import { contentStatusLabel, publicationStatusLabel } from "@/lib/dashboard/status-labels";
+import { computeHomeAttentionState } from "@/lib/dashboard/attention";
+import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta } from "@/lib/dashboard/delta";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,17 @@ function fmt(date: string | null): string {
  * new is computed, only recomposed. "Active opportunities" now specifically
  * means undecided ("new") opportunities, matching the sidebar's attention
  * count exactly, rather than the old new+approved mix.
+ *
+ * Phase 7.1F: two fixes from the client product audit. (1) "SEO
+ * performance" previously showed all-time totals with no window label,
+ * while Reports showed a 28-day-vs-previous-28-day comparison — a client
+ * comparing the two pages had no way to know the numbers weren't measuring
+ * the same thing. This now uses the exact same lib/dashboard/delta.ts
+ * window/comparison Reports uses, so the two pages agree. (2) "Needs your
+ * attention" used one sentence ("nicely done") for both a genuinely
+ * caught-up account and a brand-new one with no data at all — a new
+ * client hasn't done anything to be "nicely done" about. See
+ * computeHomeAttentionState for the (migration-free) distinction.
  */
 export default async function OrganizationHomePage({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
@@ -41,8 +55,11 @@ export default async function OrganizationHomePage({ params }: { params: Promise
     );
   }
 
-  const [gscStats, issues, opportunities, pendingApprovals, publications, outcomeStats, alerts, recentBriefs] = await Promise.all([
+  const comparisonWindow = getComparisonWindow(new Date());
+  const [gscStats, currentRows, previousRows, issues, opportunities, pendingApprovals, publications, outcomeStats, alerts, recentBriefs] = await Promise.all([
     getSearchConsoleStatsForWebsite(website.id),
+    listSearchConsoleMetricsForWebsiteInRange(website.id, comparisonWindow.currentStart, comparisonWindow.currentEnd),
+    listSearchConsoleMetricsForWebsiteInRange(website.id, comparisonWindow.previousStart, comparisonWindow.previousEnd),
     listIssuesForWebsite(website.id),
     listOpportunitiesForWebsite(website.id),
     listContentJobsForWebsite(website.id, "READY_FOR_APPROVAL"),
@@ -51,6 +68,12 @@ export default async function OrganizationHomePage({ params }: { params: Promise
     listAlertsForWebsite(website.id, { status: "open" }, 5),
     listContentBriefsForWebsite(website.id, 3),
   ]);
+
+  const current = summarizeSearchConsoleRows(currentRows);
+  const previous = summarizeSearchConsoleRows(previousRows);
+  const clicksDelta = computeDelta(current.clicks, previous.clicks);
+  const impressionsDelta = computeDelta(current.impressions, previous.impressions);
+  const currentCtr = current.impressions > 0 ? `${Math.round((current.clicks / current.impressions) * 1000) / 10}%` : "-";
 
   const openIssues = issues.filter((i) => i.status === "open");
   const criticalOrHigh = openIssues.filter((i) => i.severity === "critical" || i.severity === "high");
@@ -62,6 +85,11 @@ export default async function OrganizationHomePage({ params }: { params: Promise
   const recentContentJobs = await Promise.all(recentBriefs.map(async (b) => ({ brief: b, job: (await listContentJobsForBrief(b.id))[0] ?? null })));
 
   const needsAttentionCount = newOpportunities.length + pendingApprovals.length + criticalOrHigh.length + alerts.length;
+  const homeState = computeHomeAttentionState({
+    needsAttentionCount,
+    hasAnyOpportunities: opportunities.length > 0,
+    hasAnyIssues: issues.length > 0,
+  });
 
   return (
     <>
@@ -70,23 +98,14 @@ export default async function OrganizationHomePage({ params }: { params: Promise
 
       <section className="dash-section">
         <h2 className="dash-section-heading">SEO performance</h2>
+        <p className="dash-muted" style={{ fontSize: "0.85rem", marginTop: -8, marginBottom: 12 }}>
+          Last 28 days vs. the 28 days before that — the same window shown on Reports.
+        </p>
         <div className="dash-grid dash-grid-cols-4">
-          <div className="dash-card stat">
-            <div className="dash-stat-label">Organic clicks</div>
-            <div className="dash-stat-value">{gscStats.totalClicks.toLocaleString()}</div>
-          </div>
-          <div className="dash-card stat">
-            <div className="dash-stat-label">Impressions</div>
-            <div className="dash-stat-value">{gscStats.totalImpressions.toLocaleString()}</div>
-          </div>
-          <div className="dash-card stat">
-            <div className="dash-stat-label">Average position</div>
-            <div className="dash-stat-value">{gscStats.averagePosition ?? "-"}</div>
-          </div>
-          <div className="dash-card stat">
-            <div className="dash-stat-label">CTR</div>
-            <div className="dash-stat-value">{gscStats.totalImpressions > 0 ? `${Math.round((gscStats.totalClicks / gscStats.totalImpressions) * 1000) / 10}%` : "-"}</div>
-          </div>
+          <DeltaStat label="Organic clicks" value={current.clicks.toLocaleString()} delta={clicksDelta} deltaSuffix="vs previous 28 days" />
+          <DeltaStat label="Impressions" value={current.impressions.toLocaleString()} delta={impressionsDelta} deltaSuffix="vs previous 28 days" />
+          <DeltaStat label="Average position" value={current.position !== null ? String(current.position) : "-"} secondary={`previously ${previous.position ?? "-"}`} />
+          <DeltaStat label="CTR" value={currentCtr} secondary="last 28 days" />
         </div>
         {gscStats.totalRows === 0 && (
           <div className="dash-notice" style={{ marginTop: 16, marginBottom: 0 }}>
@@ -99,9 +118,17 @@ export default async function OrganizationHomePage({ params }: { params: Promise
 
       <section className="dash-section">
         <h2 className="dash-section-heading">Needs your attention</h2>
-        {needsAttentionCount === 0 ? (
-          <p className="dash-muted" style={{ fontSize: "0.9rem" }}>Nothing needs your attention right now — nicely done.</p>
-        ) : (
+        {homeState === "brand-new" && (
+          <p className="dash-muted" style={{ fontSize: "0.9rem" }}>
+            Your account is just getting started — opportunities and insights will appear here once your first SEO analysis has run. There&apos;s nothing you need to do right now.
+          </p>
+        )}
+        {homeState === "caught-up" && (
+          <p className="dash-muted" style={{ fontSize: "0.9rem" }}>
+            Nothing needs your attention right now — nicely done.
+          </p>
+        )}
+        {homeState === "needs-attention" && (
           <div>
             {alerts.map((a) => (
               <div key={a.id} className="dash-list-row">
