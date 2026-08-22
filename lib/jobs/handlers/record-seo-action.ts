@@ -1,13 +1,33 @@
 import { getSeoActionForContentPublication, getSeoActionForTask, insertSeoAction } from "@/lib/db/seo-actions";
 import { getSearchPerformanceOpportunityBySeoOpportunityId } from "@/lib/db/search-performance";
 import { getOpportunity } from "@/lib/db/opportunities";
-import { getTask } from "@/lib/db/tasks";
+import { getTask, updateTaskStatus } from "@/lib/db/tasks";
 import { getPageById } from "@/lib/db/pages";
 import { listKeywordIdsForOpportunity, getKeyword } from "@/lib/db/keywords";
 import { isContentEligibleOpportunityType } from "@/lib/content/eligibility";
 import { deriveActionType } from "@/lib/outcomes/action-type";
 import type { PublishingContext } from "@/lib/jobs/handlers/publishing-shared";
 import type { OpportunityType } from "@/lib/supabase/types";
+
+/**
+ * Phase 7.2A: closes the "task never reflects the page it was created for
+ * actually going live" gap identified in the P0-2 investigation. Called only
+ * from recordSeoActionForPublication below — i.e. only after
+ * updatePublicationStatus(..., "PUBLISHED", ...) has already committed in
+ * the caller (lib/jobs/handlers/publish-content.ts or
+ * merge-to-production.ts) — never from preparation, preview, PR creation, or
+ * approval. Idempotent and non-destructive: a null taskId is a no-op (not
+ * every content_briefs row has one), and a task already in a terminal state
+ * (completed, or cancelled by a human) is left exactly as it is rather than
+ * being overwritten.
+ */
+async function completeTaskIfLinked(taskId: string | null): Promise<void> {
+  if (!taskId) return;
+  const task = await getTask(taskId);
+  if (!task) return;
+  if (task.status === "completed" || task.status === "cancelled") return;
+  await updateTaskStatus(taskId, "completed");
+}
 
 /**
  * Phase 6 hook: called from lib/jobs/handlers/publish-content.ts right after
@@ -20,7 +40,16 @@ import type { OpportunityType } from "@/lib/supabase/types";
  */
 export async function recordSeoActionForPublication(ctx: PublishingContext, publishedUrl: string): Promise<void> {
   const existing = await getSeoActionForContentPublication(ctx.publication.id);
-  if (existing) return;
+  if (existing) {
+    // Phase 7.2A: a re-publish/retry that hits this early return already
+    // recorded the action on an earlier attempt — but if that earlier
+    // attempt's task-completion step didn't run (e.g. it predates this
+    // change, or itself failed), this still closes the loop now.
+    await completeTaskIfLinked(ctx.brief.seo_task_id).catch((error) => {
+      console.warn(`[jobs] failed to auto-complete task for content_brief ${ctx.brief.id}, continuing:`, error);
+    });
+    return;
+  }
 
   // When this opportunity was promoted from the Phase 2D/3 detector
   // pipeline, its detector_type is a more specific action-type signal than
@@ -50,6 +79,15 @@ export async function recordSeoActionForPublication(ctx: PublishingContext, publ
     targetUrl: publishedUrl,
     targetKeywordId: ctx.brief.primary_keyword_id,
     targetKeywordText: ctx.brief.primary_keyword,
+  });
+
+  // Phase 7.2A: the moment this publication is confirmed recorded as a real
+  // seo_action, also close out the seo_tasks row it came from — the same
+  // hook point as above, so both publish-content.ts and
+  // merge-to-production.ts (the only two callers of this function) get this
+  // for free without either file changing.
+  await completeTaskIfLinked(ctx.brief.seo_task_id).catch((error) => {
+    console.warn(`[jobs] failed to auto-complete task for content_brief ${ctx.brief.id}, continuing:`, error);
   });
 }
 
