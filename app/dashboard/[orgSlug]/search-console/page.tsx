@@ -59,17 +59,21 @@ export default async function SearchConsolePage({ params }: { params: Promise<{ 
 
       {isConnected && stats && stats.totalRows > 0 && (
         <>
+          <p className="dash-muted" style={{ fontSize: "0.85rem", marginBottom: 8 }}>
+            All-time totals, since {fmt(stats.earliestDate)} — for a 28-day comparison, see{" "}
+            <Link href={`/dashboard/${orgSlug}/reports`}>Reports</Link>.
+          </p>
           <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 24 }}>
             <div className="dash-card stat">
-              <div className="dash-stat-label">Clicks</div>
+              <div className="dash-stat-label">Clicks (all-time)</div>
               <div className="dash-stat-value">{stats.totalClicks.toLocaleString()}</div>
             </div>
             <div className="dash-card stat">
-              <div className="dash-stat-label">Impressions</div>
+              <div className="dash-stat-label">Impressions (all-time)</div>
               <div className="dash-stat-value">{stats.totalImpressions.toLocaleString()}</div>
             </div>
             <div className="dash-card stat">
-              <div className="dash-stat-label">Average position</div>
+              <div className="dash-stat-label">Average position (all-time)</div>
               <div className="dash-stat-value">{stats.averagePosition ?? "-"}</div>
             </div>
             <div className="dash-card stat">

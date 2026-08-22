@@ -43,8 +43,10 @@ interface NavSection {
  * client's own mental model (what am I deciding vs. what am I reading)
  * rather than how the code happens to be organised. Audit moved out of
  * "Insights" into "SEO" (it's a decision queue, not a report); Outcomes
- * moved into "Insights" under the friendlier "Performance" label — the
- * route (/outcomes) and everything the page shows are unchanged. See
+ * moved into "Insights". Phase 7.1F: renamed this nav label from
+ * "Performance" back to "Outcomes" (matching the page's own heading) —
+ * it sat next to "Reports" with near-identical scope and no way to tell
+ * them apart by name alone; the route (/outcomes) is unchanged. See
  * lib/dashboard/status-labels.ts for the separate client-language pass on
  * the *statuses* individual pages render.
  */
@@ -68,7 +70,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Insights",
     items: [
-      { href: "/outcomes", label: "Performance", icon: <PerformanceIcon /> },
+      { href: "/outcomes", label: "Outcomes", icon: <PerformanceIcon /> },
       { href: "/search-console", label: "Search Console", icon: <SearchConsoleIcon /> },
       { href: "/keywords", label: "Keywords", icon: <KeywordsIcon /> },
       { href: "/competitors", label: "Competitors", icon: <CompetitorsIcon /> },
