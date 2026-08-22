@@ -3,6 +3,7 @@ import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
+import { getTask } from "@/lib/db/tasks";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 import { classificationLabel, classificationTone, recommendationLabel, OUTCOME_MEASURING_LABEL } from "@/lib/dashboard/outcome-labels";
 
@@ -25,6 +26,14 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
   const [actions, latestOutcomes] = website
     ? await Promise.all([listSeoActionsForWebsite(website.id, { status: "EXECUTED" }), listLatestOutcomesByActionForWebsite(website.id)])
     : [[], new Map()];
+
+  // Phase 7.2B: resolve every distinct follow_up_task_id (a seo_tasks id) to
+  // its opportunity id in one batch — in practice this list is small (only
+  // NEGATIVE/CTR-flagged outcomes ever get a follow-up), never one lookup
+  // per card on this page.
+  const followUpTaskIds = Array.from(new Set(Array.from(latestOutcomes.values()).map((o) => o.follow_up_task_id).filter((tid): tid is string => tid !== null)));
+  const followUpTasks = await Promise.all(followUpTaskIds.map((tid) => getTask(tid)));
+  const followUpOpportunityIdByTaskId = new Map(followUpTaskIds.map((tid, i) => [tid, followUpTasks[i]?.opportunity_id ?? null]));
 
   return (
     <>
@@ -88,6 +97,12 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
                   <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 10 }}>
                     Measured over {outcome.measurement_window_days} days &middot; {recommendationLabel(outcome.recommendation)}
                   </p>
+                  {outcome.follow_up_task_id && followUpOpportunityIdByTaskId.get(outcome.follow_up_task_id) && (
+                    <p style={{ fontSize: "0.82rem", marginTop: 8 }}>
+                      A follow-up opportunity was created following this result —{" "}
+                      <Link href={`/dashboard/${orgSlug}/opportunities/${followUpOpportunityIdByTaskId.get(outcome.follow_up_task_id)}`}>view it &rarr;</Link>
+                    </p>
+                  )}
                   {outcome.ai_interpretation && (
                     <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 6, fontStyle: "italic" }}>
                       {outcome.ai_interpretation}

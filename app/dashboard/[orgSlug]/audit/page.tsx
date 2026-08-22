@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
 import { listIssuesForWebsite } from "@/lib/db/audits";
@@ -29,6 +30,10 @@ export default async function AuditPage({
     <>
       <h1 className="dash-page-title">SEO Audit</h1>
       <p className="dash-page-subtitle">Technical issues that could be holding your pages back in search.</p>
+      <div className="dash-notice" style={{ marginBottom: 20 }}>
+        This is a monitoring list, not an action list — there&apos;s nothing to click here. Issues are watched automatically and
+        surface as opportunities on the <Link href={`/dashboard/${orgSlug}/opportunities`}>Opportunities</Link> page once they&apos;re ready to act on.
+      </div>
 
       <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 24 }}>
         {bySeverity.map(({ severity: sev, count }) => (

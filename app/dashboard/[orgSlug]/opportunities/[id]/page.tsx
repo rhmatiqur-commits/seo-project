@@ -5,7 +5,7 @@ import { getOpportunity } from "@/lib/db/opportunities";
 import { getSearchPerformanceOpportunityBySeoOpportunityId } from "@/lib/db/search-performance";
 import { getPageById } from "@/lib/db/pages";
 import { getContentBriefBySeoOpportunityId } from "@/lib/db/content";
-import { getTaskForOpportunity } from "@/lib/db/tasks";
+import { getTaskForOpportunity, getTask } from "@/lib/db/tasks";
 import { getSeoActionForTask } from "@/lib/db/seo-actions";
 import { getLatestOutcomeForAction } from "@/lib/db/seo-action-outcomes";
 import { canManageSeoWork, canEditContent } from "@/lib/auth/permissions";
@@ -50,6 +50,10 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   // load, not a list, so this isn't a meaningful N+1 concern.
   const action = task ? await getSeoActionForTask(task.id) : null;
   const outcome = action ? await getLatestOutcomeForAction(action.id) : null;
+  // Phase 7.2B: resolve seo_action_outcomes.follow_up_task_id (a task id) to
+  // the opportunity id it belongs to, so the Outcome section can link to it
+  // — only ever one extra lookup, only when a follow-up actually exists.
+  const followUpTask = outcome?.follow_up_task_id ? await getTask(outcome.follow_up_task_id) : null;
   const outcomeSummary = buildOutcomeSummaryViewModel({
     opportunityType: opportunity.type,
     hasAction: action !== null,
@@ -59,6 +63,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
           classificationReasoning: outcome.classification_reasoning,
           recommendation: outcome.recommendation,
           measurementWindowDays: outcome.measurement_window_days,
+          followUpOpportunityId: followUpTask?.opportunity_id ?? null,
         }
       : null,
   });
