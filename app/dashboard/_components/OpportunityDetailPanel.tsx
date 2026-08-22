@@ -212,6 +212,12 @@ export function OpportunityDetailPanel({
               <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 6 }}>
                 Measured over {outcomeSummary.measurementWindowDays} days &middot; {outcomeSummary.recommendationLabel}
               </p>
+              {outcomeSummary.followUpOpportunityId && (
+                <p style={{ fontSize: "0.82rem", marginTop: 8 }}>
+                  A follow-up opportunity was created following this result —{" "}
+                  <Link href={`/dashboard/${orgSlug}/opportunities/${outcomeSummary.followUpOpportunityId}`}>view it &rarr;</Link>
+                </p>
+              )}
               <p style={{ fontSize: "0.82rem", marginTop: 8 }}>
                 <Link href={`/dashboard/${orgSlug}/outcomes`}>See full outcome details &rarr;</Link>
               </p>

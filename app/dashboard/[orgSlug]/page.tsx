@@ -109,7 +109,7 @@ export default async function OrganizationHomePage({ params }: { params: Promise
         </div>
         {gscStats.totalRows === 0 && (
           <div className="dash-notice" style={{ marginTop: 16, marginBottom: 0 }}>
-            No Google Search Console data yet — connect it from <Link href={`/dashboard/${orgSlug}/settings`}>Settings</Link> to see real performance here.
+            No Google Search Console data yet — contact your account manager to connect Google Search Console.
           </div>
         )}
       </section>

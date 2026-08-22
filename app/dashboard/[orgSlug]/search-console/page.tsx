@@ -42,10 +42,8 @@ export default async function SearchConsolePage({ params }: { params: Promise<{ 
               <p className="dash-muted" style={{ fontSize: "0.88rem", margin: 0 }}>Data starts appearing here automatically on its normal daily schedule — no further setup on your side.</p>
             </div>
           </div>
-          <p style={{ marginTop: 18 }}>
-            <Link className="dash-btn" href={`/dashboard/${orgSlug}/settings`}>
-              Go to Settings to connect
-            </Link>
+          <p className="dash-muted" style={{ marginTop: 18 }}>
+            Not connected yet — contact your account manager to connect Google Search Console.
           </p>
         </div>
       )}

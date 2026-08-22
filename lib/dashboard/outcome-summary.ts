@@ -39,6 +39,11 @@ export interface OutcomeSummaryInput {
     classificationReasoning: string;
     recommendation: OutcomeRecommendation;
     measurementWindowDays: number;
+    /** Phase 7.2B: the opportunity id of the follow-up seo_tasks row this
+     * outcome's seo_action_outcomes.follow_up_task_id points at, if any —
+     * already resolved by the caller (a DB lookup, deliberately kept out of
+     * this pure function). Null when no follow-up was ever created. */
+    followUpOpportunityId: string | null;
   } | null;
 }
 
@@ -53,6 +58,10 @@ export interface OutcomeSummaryViewModel {
   /** Only for state "classified". */
   recommendationLabel: string | null;
   measurementWindowDays: number | null;
+  /** Only for state "classified" — carries input.outcome.followUpOpportunityId
+   * through unchanged. Callers render this as "a follow-up opportunity was
+   * created following this result", never as a causal claim. */
+  followUpOpportunityId: string | null;
 }
 
 const NOT_MEASURED_LABEL = "Not tracked automatically";
@@ -60,15 +69,15 @@ const NOT_YET_LIVE_LABEL = "Nothing to measure yet";
 
 export function buildOutcomeSummaryViewModel(input: OutcomeSummaryInput): OutcomeSummaryViewModel {
   if (!isMeasurableOpportunityType(input.opportunityType)) {
-    return { state: "not-measured", label: NOT_MEASURED_LABEL, tone: "neutral", reasoning: null, recommendationLabel: null, measurementWindowDays: null };
+    return { state: "not-measured", label: NOT_MEASURED_LABEL, tone: "neutral", reasoning: null, recommendationLabel: null, measurementWindowDays: null, followUpOpportunityId: null };
   }
 
   if (!input.hasAction) {
-    return { state: "not-yet-live", label: NOT_YET_LIVE_LABEL, tone: "neutral", reasoning: null, recommendationLabel: null, measurementWindowDays: null };
+    return { state: "not-yet-live", label: NOT_YET_LIVE_LABEL, tone: "neutral", reasoning: null, recommendationLabel: null, measurementWindowDays: null, followUpOpportunityId: null };
   }
 
   if (!input.outcome) {
-    return { state: "measuring", label: OUTCOME_MEASURING_LABEL, tone: "info", reasoning: null, recommendationLabel: null, measurementWindowDays: null };
+    return { state: "measuring", label: OUTCOME_MEASURING_LABEL, tone: "info", reasoning: null, recommendationLabel: null, measurementWindowDays: null, followUpOpportunityId: null };
   }
 
   return {
@@ -78,5 +87,6 @@ export function buildOutcomeSummaryViewModel(input: OutcomeSummaryInput): Outcom
     reasoning: input.outcome.classificationReasoning,
     recommendationLabel: recommendationLabel(input.outcome.recommendation),
     measurementWindowDays: input.outcome.measurementWindowDays,
+    followUpOpportunityId: input.outcome.followUpOpportunityId,
   };
 }

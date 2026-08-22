@@ -7,6 +7,7 @@ const SAMPLE_OUTCOME = {
   classificationReasoning: "Observed change following the action: clicks +40% (10 -> 14).",
   recommendation: "MONITOR" as const,
   measurementWindowDays: 28,
+  followUpOpportunityId: null,
 };
 
 test("precedence 1: an investigative type is 'not-measured' even with an action and a positive outcome present", () => {
@@ -64,6 +65,36 @@ test("content-eligible and non-content measurable types resolve through the same
   const taskVm = buildOutcomeSummaryViewModel({ opportunityType: "INTERNAL_LINKING", hasAction: false, outcome: null });
   assert.equal(contentVm.state, taskVm.state);
   assert.equal(contentVm.label, taskVm.label);
+});
+
+test("Phase 7.2B: a classified outcome with no follow-up carries followUpOpportunityId as null", () => {
+  const vm = buildOutcomeSummaryViewModel({ opportunityType: "IMPROVE_CTR", hasAction: true, outcome: SAMPLE_OUTCOME });
+  assert.equal(vm.followUpOpportunityId, null);
+});
+
+test("Phase 7.2B: a classified outcome with a follow-up carries the resolved opportunity id through unchanged", () => {
+  const vm = buildOutcomeSummaryViewModel({
+    opportunityType: "TECHNICAL_FIX",
+    hasAction: true,
+    outcome: { ...SAMPLE_OUTCOME, followUpOpportunityId: "opp-123" },
+  });
+  assert.equal(vm.state, "classified");
+  assert.equal(vm.followUpOpportunityId, "opp-123");
+});
+
+test("Phase 7.2B: followUpOpportunityId is always null for the 3 non-classified states, even when supplied", () => {
+  const notMeasured = buildOutcomeSummaryViewModel({
+    opportunityType: "RESEARCH_REQUIRED",
+    hasAction: true,
+    outcome: { ...SAMPLE_OUTCOME, followUpOpportunityId: "opp-should-never-surface" },
+  });
+  assert.equal(notMeasured.followUpOpportunityId, null);
+
+  const notYetLive = buildOutcomeSummaryViewModel({ opportunityType: "TECHNICAL_FIX", hasAction: false, outcome: null });
+  assert.equal(notYetLive.followUpOpportunityId, null);
+
+  const measuring = buildOutcomeSummaryViewModel({ opportunityType: "TECHNICAL_FIX", hasAction: true, outcome: null });
+  assert.equal(measuring.followUpOpportunityId, null);
 });
 
 test("every non-classified state has null reasoning, recommendationLabel, and measurementWindowDays", () => {

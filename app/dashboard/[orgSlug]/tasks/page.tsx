@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { requireOrganizationMembership } from "@/lib/auth/session";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
-import { listTasksForWebsite } from "@/lib/db/tasks";
+import { listTasksForWebsite, getTask } from "@/lib/db/tasks";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
 import { canManageSeoWork } from "@/lib/auth/permissions";
@@ -62,7 +63,16 @@ function TaskTable({ tasks, orgSlug, canAct, outcomeByTaskId }: { tasks: TaskRow
                 {outcomeByTaskId && (
                   <td data-label="Outcome">
                     {outcome ? (
-                      <span className={`dash-badge ${outcome.tone}`}>{outcome.label}</span>
+                      <>
+                        <span className={`dash-badge ${outcome.tone}`}>{outcome.label}</span>
+                        {outcome.followUpOpportunityId && (
+                          <div style={{ marginTop: 4 }}>
+                            <Link href={`/dashboard/${orgSlug}/opportunities/${outcome.followUpOpportunityId}`} style={{ fontSize: "0.76rem" }}>
+                              Follow-up created &rarr;
+                            </Link>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <span className="dash-muted" style={{ fontSize: "0.8rem" }}>
                         &mdash;
@@ -128,6 +138,15 @@ export default async function TasksPage({ params }: { params: Promise<{ orgSlug:
   // now auto-completes it too — lib/jobs/handlers/record-seo-action.ts) —
   // so this map is only ever non-empty for entries in the "Done" bucket.
   const actionByTaskId = new Map(actions.filter((a) => a.seo_task_id).map((a) => [a.seo_task_id as string, a]));
+
+  // Phase 7.2B: resolve every distinct follow_up_task_id (a seo_tasks id) to
+  // its opportunity id in one batch, so the loop below stays synchronous —
+  // in practice this list is small (only NEGATIVE/CTR-flagged outcomes ever
+  // get a follow-up), never one lookup per task on the page.
+  const followUpTaskIds = Array.from(new Set(Array.from(outcomesByAction.values()).map((o) => o.follow_up_task_id).filter((tid): tid is string => tid !== null)));
+  const followUpTasks = await Promise.all(followUpTaskIds.map((tid) => getTask(tid)));
+  const followUpOpportunityIdByTaskId = new Map(followUpTaskIds.map((tid, i) => [tid, followUpTasks[i]?.opportunity_id ?? null]));
+
   const outcomeByTaskId = new Map<string, OutcomeSummaryViewModel>();
   for (const t of tasks) {
     const action = actionByTaskId.get(t.id);
@@ -144,6 +163,7 @@ export default async function TasksPage({ params }: { params: Promise<{ orgSlug:
               classificationReasoning: outcome.classification_reasoning,
               recommendation: outcome.recommendation,
               measurementWindowDays: outcome.measurement_window_days,
+              followUpOpportunityId: outcome.follow_up_task_id ? followUpOpportunityIdByTaskId.get(outcome.follow_up_task_id) ?? null : null,
             }
           : null,
       })

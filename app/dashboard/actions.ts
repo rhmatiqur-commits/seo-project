@@ -227,7 +227,7 @@ export async function reviseContentAction(formData: FormData): Promise<void> {
 export async function approveContentDashboardAction(formData: FormData): Promise<void> {
   const orgSlug = String(formData.get("org_slug"));
   const contentJobId = String(formData.get("content_job_id"));
-  const { organization, membership } = await requireOrganizationMembership(orgSlug, "MANAGER");
+  const { organization, membership, user } = await requireOrganizationMembership(orgSlug, "MANAGER");
   if (!canApproveContent(membership.role)) throw new PermissionError("You don't have permission to approve content.");
 
   const contentJob = await getContentJob(contentJobId);
@@ -240,12 +240,21 @@ export async function approveContentDashboardAction(formData: FormData): Promise
 
   const approvedVersion = await getLatestContentVersionForJob(contentJobId);
   if (approvedVersion) {
+    // Phase 7.2B: the only recordPublicationAuditEvent call site that runs
+    // synchronously inside a live, authenticated request — the real signed-in
+    // user is right here, so this is the one event that can honestly say who
+    // acted, rather than falling back to the shared "admin" placeholder.
+    // Every other audit event (branch/PR/preview/merge/publish) is written
+    // later by a background job with no request-user context, and stays
+    // attributed to "admin" — that's the correct, honest label for a
+    // background-job completion, not a shortfall of this fix.
     await recordPublicationAuditEvent({
       organizationId: contentJob!.organization_id,
       websiteId: contentJob!.website_id,
       contentVersionId: approvedVersion.id,
       action: "CONTENT_APPROVED",
       result: "success",
+      actor: user.email ?? undefined,
     });
   }
 

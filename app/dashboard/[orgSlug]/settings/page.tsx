@@ -142,10 +142,20 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
             </details>
           </>
         )}
+        {website && !canManageIntegrationsHere && (
+          <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 12, marginBottom: 0 }}>
+            Only the account Owner can manage integrations — ask an Owner on your team.
+          </p>
+        )}
       </div>
 
       <div className="dash-card">
         <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Team</h2>
+        {!canManageUsersHere && (
+          <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 0, marginBottom: 12 }}>
+            Only the account Owner can invite, remove, or change the role of team members — ask an Owner on your team.
+          </p>
+        )}
         <table className="dash-table">
           <thead>
             <tr>
