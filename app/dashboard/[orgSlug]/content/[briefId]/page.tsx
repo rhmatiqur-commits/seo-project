@@ -149,6 +149,20 @@ export default async function ContentBriefDashboardPage({ params }: { params: Pr
             </SubmitButton>
           </form>
         )}
+        {/* Phase 7.2D: same "explain the missing control" idiom 7.2B already
+            shipped on Settings — canGenerate/canRevise share one EDITOR+
+            floor, so one line covers both; canReview is the separate
+            MANAGER+ floor and only relevant once there's a job to review. */}
+        {!canEditContent(membership.role) && (
+          <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 12, marginBottom: 0 }}>
+            Only Editors and above can generate or revise content — ask a teammate with that role.
+          </p>
+        )}
+        {latestJob && !canReview && (
+          <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 8, marginBottom: 0 }}>
+            Only Managers and above can approve or reject content — ask a teammate with that role.
+          </p>
+        )}
       </div>
 
       {latestVersion && (
@@ -255,6 +269,14 @@ export default async function ContentBriefDashboardPage({ params }: { params: Pr
             <p className="dash-muted" style={{ fontSize: "0.78rem", marginTop: 8 }}>
               &quot;Prepare publication&quot; never makes the page public — it opens a preview for you to review. &quot;Approve &amp; publish&quot; is the only action that makes it live.
             </p>
+            {/* Phase 7.2D: same idiom as above — canPreparePublication and
+                canPublishToProduction share the same MANAGER+ floor, so one
+                line covers both. */}
+            {!canPreparePublication(membership.role) && !canPublishToProduction(membership.role) && (
+              <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 8 }}>
+                Only Managers and above can prepare or publish content — ask a teammate with that role.
+              </p>
+            )}
           </>
         )}
       </div>

@@ -25,7 +25,7 @@ import { canTransitionContentJob } from "@/lib/content/state-machine";
 import { recordPublicationAuditEvent } from "@/lib/db/publication-audit";
 import { getOrCreatePublicationForVersion } from "@/lib/db/content-publications";
 import { getCmsConnectionForWebsite, upsertGitHubToken, selectGitHubRepository, markConnectionTested, getDecryptedCredential } from "@/lib/db/cms-connections";
-import { selectSearchConsoleSite } from "@/lib/db/search-console";
+import { selectSearchConsoleSite, disconnectSearchConsole } from "@/lib/db/search-console";
 import { createPublishingProvider, buildPublishingConnectionConfig } from "@/lib/publishing/get-provider";
 import { insertInvitation, getInvitationById, revokeInvitation } from "@/lib/db/invitations";
 import { getMembershipById, deleteMembership, updateMembershipRole, countOwners } from "@/lib/db/memberships";
@@ -418,6 +418,30 @@ export async function selectSearchConsoleSiteDashboardAction(formData: FormData)
   redirect(`/dashboard/${orgSlug}/settings`);
 }
 
+/**
+ * Phase 7.2D: mirrors selectSearchConsoleSiteDashboardAction's exact shape
+ * (same OWNER-only session gate, same session-derived website resolution,
+ * never a client-supplied website_id) so a client who connects the wrong
+ * Google property — or wants to switch accounts — isn't stuck depending on
+ * an admin, closing the one escape-hatch gap the 7.2D audit found in
+ * 7.2C-B's otherwise-complete self-service flow. Reuses
+ * disconnectSearchConsole (lib/db/search-console.ts) entirely unchanged —
+ * the same function the admin flow's disconnectSearchConsoleAction already
+ * calls, which that action and its route are untouched by this addition.
+ */
+export async function disconnectSearchConsoleDashboardAction(formData: FormData): Promise<void> {
+  const orgSlug = String(formData.get("org_slug"));
+  const { organization, membership } = await requireOrganizationMembership(orgSlug, "OWNER");
+  if (!canManageIntegrations(membership.role)) throw new PermissionError("You don't have permission to manage integrations.");
+
+  const website = await getPrimaryWebsiteForOrganization(organization.id);
+  if (!website) throw new Error("No website is configured for this organisation yet.");
+
+  await disconnectSearchConsole(website.id);
+  revalidatePath(`/dashboard/${orgSlug}/settings`);
+  redirect(`/dashboard/${orgSlug}/settings`);
+}
+
 export async function testPublishingConnectionDashboardAction(formData: FormData): Promise<void> {
   const orgSlug = String(formData.get("org_slug"));
   const { organization, membership } = await requireOrganizationMembership(orgSlug, "OWNER");
@@ -450,7 +474,22 @@ export async function inviteMemberAction(formData: FormData): Promise<void> {
   if (!canManageUsers(membership.role)) throw new PermissionError("You don't have permission to invite users.");
   if (!email) throw new Error("An email address is required.");
 
-  await insertInvitation({ organizationId: organization.id, email, role, invitedBy: user.id });
+  try {
+    await insertInvitation({ organizationId: organization.id, email, role, invitedBy: user.id });
+  } catch (error) {
+    // Phase 7.2D: organization_invitations' partial unique index (migration
+    // 0027) blocks a second simultaneous pending invitation for the same
+    // email — including one a client currently sees as "Expired" (7.2C-C's
+    // expiry is display-only; the underlying row's status never actually
+    // changes). Translate Postgres' raw unique-violation (23505) into the
+    // one concrete next step instead of letting a database error reach the
+    // client verbatim. Any other error is re-thrown unchanged.
+    if (error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "23505") {
+      throw new Error("There's already a pending invitation for this email — revoke it below, then send a new one.");
+    }
+    throw error;
+  }
+
   revalidatePath(`/dashboard/${orgSlug}/settings`);
   redirect(`/dashboard/${orgSlug}/settings`);
 }

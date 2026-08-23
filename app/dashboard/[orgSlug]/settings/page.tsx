@@ -13,6 +13,7 @@ import {
   connectGitHubTokenDashboardAction,
   selectGitHubRepositoryDashboardAction,
   selectSearchConsoleSiteDashboardAction,
+  disconnectSearchConsoleDashboardAction,
   testPublishingConnectionDashboardAction,
   inviteMemberAction,
   revokeInvitationAction,
@@ -100,6 +101,24 @@ export default async function SettingsPage({ params }: { params: Promise<{ orgSl
         )}
         {website && canManageIntegrationsHere && searchConsole?.status === "pending_site_selection" && (
           <SearchConsoleSitePicker orgSlug={orgSlug} accessToken={searchConsole.access_token} />
+        )}
+        {/* Phase 7.2D: the escape hatch the 7.2D audit found missing — once
+            active, 7.2C-B left no client-facing way to change the selected
+            property or switch Google accounts, the one gap in an otherwise
+            fully self-service flow. */}
+        {website && canManageIntegrationsHere && searchConsole?.status === "active" && (
+          <form action={disconnectSearchConsoleDashboardAction} style={{ marginTop: 12 }}>
+            <input type="hidden" name="org_slug" value={orgSlug} />
+            <ConfirmSubmitButton
+              variant="danger-outline"
+              style={{ padding: "4px 10px", fontSize: "0.8rem" }}
+              confirmTitle="Disconnect Google Search Console?"
+              confirmDescription="You'll need to reconnect and choose a property again to restore live performance data. Search Console data already recorded isn't affected."
+              confirmLabel="Disconnect"
+            >
+              Disconnect
+            </ConfirmSubmitButton>
+          </form>
         )}
         {website && !canManageIntegrationsHere && (!searchConsole || searchConsole.status !== "active") && (
           <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 12, marginBottom: 0 }}>
