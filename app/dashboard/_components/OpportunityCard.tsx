@@ -66,6 +66,18 @@ export function OpportunityCard({ opportunity: o, orgSlug, canAct, acceptAction,
           </div>
         </ActionGroup>
       )}
+      {/* Phase 7.2F: same "explain the missing control" idiom Settings (7.2B)
+          and content-detail (7.2D) already established — canAct is the only
+          gate on Accept/Dismiss, so its inverse is the only thing needed
+          here. Cards are only ever rendered for status "new" opportunities
+          (OpportunityBrowser filters to filteredOpen before mapping), so no
+          extra status check is needed to keep this scoped to opportunities
+          where the control would otherwise have appeared. */}
+      {!canAct && (
+        <p className="dash-muted" style={{ fontSize: "0.78rem", marginTop: 12, marginBottom: 0 }}>
+          Only Managers and above can accept or dismiss opportunities — ask a teammate with that role.
+        </p>
+      )}
     </div>
   );
 }

@@ -246,6 +246,15 @@ export function OpportunityDetailPanel({
           </div>
         </ActionGroup>
       )}
+      {/* Phase 7.2F: same idiom as OpportunityCard — mirrors the exact
+          canAct && o.status === "new" guard above so this only ever appears
+          where the control itself would otherwise have appeared, never on
+          an opportunity that's already been decided. */}
+      {!canAct && o.status === "new" && (
+        <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: 20 }}>
+          Only Managers and above can accept or dismiss opportunities — ask a teammate with that role.
+        </p>
+      )}
     </>
   );
 }

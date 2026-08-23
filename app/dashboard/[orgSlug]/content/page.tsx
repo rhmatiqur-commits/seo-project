@@ -126,6 +126,15 @@ export default async function ContentListPage({ params }: { params: Promise<{ or
       <h1 className="dash-page-title">Content</h1>
       <p className="dash-page-subtitle">Pages being written for your site, from brief through approval.</p>
 
+      {/* Phase 7.2F: same idiom as Tasks — one line above the table rather
+          than once per row, matching Settings' Team table precedent. Gated
+          on briefs.length > 0 so it doesn't show on an already-empty page. */}
+      {briefs.length > 0 && !canApprove && (
+        <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: -8, marginBottom: 16 }}>
+          Only Managers and above can approve content — ask a teammate with that role.
+        </p>
+      )}
+
       {briefs.length === 0 && (
         <EmptyState
           title="No content briefs yet"

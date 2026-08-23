@@ -180,6 +180,18 @@ export default async function TasksPage({ params }: { params: Promise<{ orgSlug:
       <h1 className="dash-page-title">Tasks</h1>
       <p className="dash-page-subtitle">What&apos;s being worked on, and what&apos;s next.</p>
 
+      {/* Phase 7.2F: same "explain the missing control" idiom as Settings
+          (7.2B) and content-detail (7.2D), applied once above the table
+          rather than once per row — matching Settings' Team table, the
+          closest existing precedent for a role-gated table column. Gated
+          on tasks.length > 0 so it doesn't show on an already-empty page
+          where there's nothing to act on regardless of role. */}
+      {tasks.length > 0 && !canAct && (
+        <p className="dash-muted" style={{ fontSize: "0.82rem", marginTop: -8, marginBottom: 16 }}>
+          Only Managers and above can update task status — ask a teammate with that role.
+        </p>
+      )}
+
       {tasks.length === 0 && (
         <EmptyState title="No tasks yet" description="Tasks are created automatically as new opportunities are found — you don't need to create them yourself." />
       )}
