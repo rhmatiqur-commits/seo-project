@@ -487,7 +487,13 @@ export async function inviteMemberAction(formData: FormData): Promise<void> {
     if (error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "23505") {
       throw new Error("There's already a pending invitation for this email — revoke it below, then send a new one.");
     }
-    throw error;
+    // Phase 7.2G: any other failure (a transient connection error, a
+    // different constraint, an RLS deny) previously reached the client as
+    // the raw Supabase/Postgrest error object's message — the one place in
+    // the dashboard that violated error.tsx's documented "every throw is
+    // already a human-readable sentence" invariant. Generic and client-safe,
+    // same idiom as the 23505 branch above.
+    throw new Error("Couldn't create the invitation — please try again.");
   }
 
   revalidatePath(`/dashboard/${orgSlug}/settings`);
