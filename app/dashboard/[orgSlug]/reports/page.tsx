@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireOrganizationMembership } from "@/lib/auth/session";
+import { canManageIntegrations } from "@/lib/auth/permissions";
 import { getPrimaryWebsiteForOrganization } from "@/lib/dashboard/website";
-import { listSearchConsoleMetricsForWebsiteInRange } from "@/lib/db/search-console";
+import { getSearchConsoleConnection, listSearchConsoleMetricsForWebsiteInRange } from "@/lib/db/search-console";
 import { listIssuesForWebsite } from "@/lib/db/audits";
 import { listOpportunitiesForWebsite } from "@/lib/db/opportunities";
 import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
@@ -24,8 +25,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function ReportsPage({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
-  const { organization } = await requireOrganizationMembership(orgSlug);
+  const { organization, membership } = await requireOrganizationMembership(orgSlug);
   const website = await getPrimaryWebsiteForOrganization(organization.id);
+  const canConnectSearchConsole = canManageIntegrations(membership.role);
 
   if (!website) {
     return (
@@ -38,13 +40,16 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
 
   const comparisonWindow = getComparisonWindow(new Date());
 
-  const [currentRows, previousRows, issues, opportunities, actions] = await Promise.all([
+  const [connection, currentRows, previousRows, issues, opportunities, actions] = await Promise.all([
+    getSearchConsoleConnection(website.id),
     listSearchConsoleMetricsForWebsiteInRange(website.id, comparisonWindow.currentStart, comparisonWindow.currentEnd),
     listSearchConsoleMetricsForWebsiteInRange(website.id, comparisonWindow.previousStart, comparisonWindow.previousEnd),
     listIssuesForWebsite(website.id),
     listOpportunitiesForWebsite(website.id),
     listSeoActionsForWebsite(website.id, { status: "EXECUTED" }),
   ]);
+  const isSearchConsoleConnected = connection?.status === "active";
+  const hasSearchConsoleData = currentRows.length > 0 || previousRows.length > 0;
   const latestOutcomes = await listLatestOutcomesByActionForWebsite(website.id);
 
   const current = summarizeSearchConsoleRows(currentRows);
@@ -74,7 +79,7 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
 
   return (
     <>
-      <h1 className="dash-page-title">Performance report</h1>
+      <h1 className="dash-page-title">Reports</h1>
       <p className="dash-page-subtitle">
         How your website is performing over time — last {DEFAULT_COMPARISON_WINDOW_DAYS} days vs. the {DEFAULT_COMPARISON_WINDOW_DAYS} days before that.
       </p>
@@ -82,11 +87,29 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
         Looking for what happened after a specific piece of SEO work instead? See <Link href={`/dashboard/${orgSlug}/outcomes`}>Outcomes</Link>.
       </p>
 
-      <div className="dash-grid dash-grid-cols-3" style={{ marginBottom: 28 }}>
+      <div className="dash-grid dash-grid-cols-3" style={{ marginBottom: !isSearchConsoleConnected || !hasSearchConsoleData ? 0 : 28 }}>
         <DeltaStat label="Clicks" value={current.clicks.toLocaleString()} delta={clicksDelta} deltaSuffix="vs previous period" />
         <DeltaStat label="Impressions" value={current.impressions.toLocaleString()} delta={impressionsDelta} deltaSuffix="vs previous period" />
         <DeltaStat label="Average position" value={current.position !== null ? String(current.position) : "-"} secondary={`previously ${previous.position ?? "-"}`} />
       </div>
+      {!isSearchConsoleConnected && (
+        <div className="dash-notice" style={{ marginTop: 16, marginBottom: 28 }}>
+          No Google Search Console data yet
+          {canConnectSearchConsole ? (
+            <>
+              {" "}
+              — connect it from <Link href={`/dashboard/${orgSlug}/settings`}>Settings</Link> to see real performance here.
+            </>
+          ) : (
+            " — ask an Owner on your team to connect Google Search Console from Settings."
+          )}
+        </div>
+      )}
+      {isSearchConsoleConnected && !hasSearchConsoleData && (
+        <div className="dash-notice" style={{ marginTop: 16, marginBottom: 28 }}>
+          Search Console is connected — data is on its way. Google Search Console data usually takes a couple of days to start appearing after connecting; nothing further is needed on your side.
+        </div>
+      )}
 
       <h2 style={{ fontSize: "1rem" }}>SEO actions</h2>
       <div className="dash-grid dash-grid-cols-4" style={{ marginBottom: 28 }}>
