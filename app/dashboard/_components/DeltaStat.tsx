@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export interface DeltaStatProps {
   label: string;
   value: string;
@@ -9,6 +11,10 @@ export interface DeltaStatProps {
    * need its own inverted-tone logic; simpler and clearer to just state
    * the previous value). */
   secondary?: string;
+  /** Phase 7.2I: an optional small chart (e.g. TrendChart) rendered below
+   * the delta/secondary line — purely additive, every existing caller that
+   * doesn't pass this renders exactly as before. */
+  trend?: ReactNode;
 }
 
 /**
@@ -17,7 +23,7 @@ export interface DeltaStatProps {
  * comparison the exact same way — previously Reports had its own inline
  * markup for this and Home didn't show a delta at all.
  */
-export function DeltaStat({ label, value, delta, deltaSuffix, secondary }: DeltaStatProps) {
+export function DeltaStat({ label, value, delta, deltaSuffix, secondary, trend }: DeltaStatProps) {
   return (
     <div className="dash-card stat">
       <div className="dash-stat-label">{label}</div>
@@ -33,6 +39,7 @@ export function DeltaStat({ label, value, delta, deltaSuffix, secondary }: Delta
           {secondary}
         </div>
       )}
+      {trend && <div style={{ marginTop: 8 }}>{trend}</div>}
     </div>
   );
 }
