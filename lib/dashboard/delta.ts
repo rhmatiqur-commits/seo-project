@@ -68,6 +68,47 @@ export function summarizeSearchConsoleRows(rows: readonly SearchConsoleRowLike[]
   return { clicks, impressions, position: posWeight > 0 ? Math.round((posSum / posWeight) * 10) / 10 : null };
 }
 
+export interface DailySearchConsolePoint {
+  date: string;
+  clicks: number;
+  impressions: number;
+}
+
+/**
+ * Phase 7.2I: aggregates raw Search Console rows (one row per
+ * date+query+page — several rows can share a date) into one point per
+ * calendar day across [startDate, endDate] inclusive, for the trend charts
+ * on Reports. A day with no synced rows gets zero rather than being
+ * skipped, so the chart is a continuous, evenly-spaced timeline instead of
+ * gaps a client could misread as missing days — same "zero is honest,
+ * never invent a number" rule the rest of this module already follows.
+ * No new query: callers already fetch these rows for the existing
+ * period-over-period stat cards.
+ */
+export function buildDailySearchConsoleSeries(
+  rows: readonly (SearchConsoleRowLike & { date: string })[],
+  startDate: string,
+  endDate: string
+): DailySearchConsolePoint[] {
+  const byDate = new Map<string, { clicks: number; impressions: number }>();
+  for (const r of rows) {
+    const existing = byDate.get(r.date) ?? { clicks: 0, impressions: 0 };
+    existing.clicks += r.clicks;
+    existing.impressions += r.impressions;
+    byDate.set(r.date, existing);
+  }
+  const points: DailySearchConsolePoint[] = [];
+  let cursor = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  while (cursor.getTime() <= end.getTime()) {
+    const iso = toIsoDate(cursor);
+    const agg = byDate.get(iso);
+    points.push({ date: iso, clicks: agg?.clicks ?? 0, impressions: agg?.impressions ?? 0 });
+    cursor = new Date(cursor.getTime() + DAY_MS);
+  }
+  return points;
+}
+
 export interface DeltaResult {
   text: string;
   tone: "up" | "down" | "flat";
