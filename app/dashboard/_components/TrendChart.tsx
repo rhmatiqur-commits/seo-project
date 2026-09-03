@@ -9,6 +9,11 @@ export interface TrendChartProps {
   color: string;
   /** Accessible label — what the line represents. */
   label: string;
+  /** For metrics where a lower number is better (e.g. average position) —
+   * flips which end of the scale renders near the top, so "better" still
+   * reads as "higher on the chart" the same way it does for every other
+   * metric, instead of a falling ranking looking like a rising line. */
+  invert?: boolean;
 }
 
 /**
@@ -24,7 +29,7 @@ export interface TrendChartProps {
  * (lib/dashboard/delta.ts's buildDailySearchConsoleSeries) — no data
  * fetching, no new query.
  */
-export function TrendChart({ points, color, label }: TrendChartProps) {
+export function TrendChart({ points, color, label, invert }: TrendChartProps) {
   const width = 600;
   const height = 120;
   const padding = 8;
@@ -33,7 +38,8 @@ export function TrendChart({ points, color, label }: TrendChartProps) {
   const stepX = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
   const toXY = (i: number, value: number) => {
     const x = padding + i * stepX;
-    const y = height - padding - (value / max) * (height - padding * 2);
+    const fraction = (value / max) * (height - padding * 2);
+    const y = invert ? padding + fraction : height - padding - fraction;
     return [x, y] as const;
   };
 
