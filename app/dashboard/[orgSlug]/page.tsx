@@ -11,9 +11,10 @@ import { listAlertsForWebsite } from "@/lib/db/seo-alerts";
 import { canManageIntegrations } from "@/lib/auth/permissions";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 import { DeltaStat } from "@/app/dashboard/_components/DeltaStat";
+import { TrendChart } from "@/app/dashboard/_components/TrendChart";
 import { contentStatusLabel, publicationStatusLabel } from "@/lib/dashboard/status-labels";
 import { computeHomeAttentionState } from "@/lib/dashboard/attention";
-import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta } from "@/lib/dashboard/delta";
+import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta, buildDailySearchConsoleSeries } from "@/lib/dashboard/delta";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,11 @@ export default async function OrganizationHomePage({ params }: { params: Promise
   const impressionsDelta = computeDelta(current.impressions, previous.impressions);
   const currentCtr = current.impressions > 0 ? `${Math.round((current.clicks / current.impressions) * 1000) / 10}%` : "-";
 
+  // Phase 7.2I: same currentRows already fetched above, and the exact same
+  // aggregation Reports uses — reused, not duplicated.
+  const dailySeries = buildDailySearchConsoleSeries(currentRows, comparisonWindow.currentStart, comparisonWindow.currentEnd);
+  const latestSyncedDate = currentRows.reduce<string | null>((max, r) => (max === null || r.date > max ? r.date : max), null);
+
   const openIssues = issues.filter((i) => i.status === "open");
   const criticalOrHigh = openIssues.filter((i) => i.severity === "critical" || i.severity === "high");
   const newOpportunities = opportunities.filter((o) => o.status === "new");
@@ -102,10 +108,28 @@ export default async function OrganizationHomePage({ params }: { params: Promise
         <h2 className="dash-section-heading">SEO performance</h2>
         <p className="dash-muted" style={{ fontSize: "0.85rem", marginTop: -8, marginBottom: 12 }}>
           Last 28 days vs. the 28 days before that — the same window shown on Reports.
+          {latestSyncedDate && (
+            <>
+              {" "}
+              Data as of <strong>{new Date(`${latestSyncedDate}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</strong>.
+            </>
+          )}
         </p>
         <div className="dash-grid dash-grid-cols-4">
-          <DeltaStat label="Organic clicks" value={current.clicks.toLocaleString()} delta={clicksDelta} deltaSuffix="vs previous 28 days" />
-          <DeltaStat label="Impressions" value={current.impressions.toLocaleString()} delta={impressionsDelta} deltaSuffix="vs previous 28 days" />
+          <DeltaStat
+            label="Organic clicks"
+            value={current.clicks.toLocaleString()}
+            delta={clicksDelta}
+            deltaSuffix="vs previous 28 days"
+            trend={<TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.clicks }))} color="var(--dash-primary)" label="Clicks" />}
+          />
+          <DeltaStat
+            label="Impressions"
+            value={current.impressions.toLocaleString()}
+            delta={impressionsDelta}
+            deltaSuffix="vs previous 28 days"
+            trend={<TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.impressions }))} color="var(--dash-info)" label="Impressions" />}
+          />
           <DeltaStat label="Average position" value={current.position !== null ? String(current.position) : "-"} secondary={`previously ${previous.position ?? "-"}`} />
           <DeltaStat label="CTR" value={currentCtr} secondary="last 28 days" />
         </div>
