@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta, DEFAULT_COMPARISON_WINDOW_DAYS } from "./delta";
+import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta, buildDailySearchConsoleSeries, DEFAULT_COMPARISON_WINDOW_DAYS } from "./delta";
 
 test("DEFAULT_COMPARISON_WINDOW_DAYS is 28", () => {
   assert.equal(DEFAULT_COMPARISON_WINDOW_DAYS, 28);
@@ -90,4 +90,38 @@ test("computeDelta: decrease produces a negative percentage with a 'down' tone",
 
 test("computeDelta: no change -> 'No change' with a flat tone", () => {
   assert.deepEqual(computeDelta(100, 100), { text: "No change", tone: "flat" });
+});
+
+test("buildDailySearchConsoleSeries: one point per day across the range, inclusive of both ends", () => {
+  const series = buildDailySearchConsoleSeries([], "2026-08-01", "2026-08-04");
+  assert.equal(series.length, 4);
+  assert.deepEqual(
+    series.map((p) => p.date),
+    ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"]
+  );
+});
+
+test("buildDailySearchConsoleSeries: a day with no rows is zero, not skipped", () => {
+  const series = buildDailySearchConsoleSeries([], "2026-08-01", "2026-08-02");
+  assert.deepEqual(series, [
+    { date: "2026-08-01", clicks: 0, impressions: 0 },
+    { date: "2026-08-02", clicks: 0, impressions: 0 },
+  ]);
+});
+
+test("buildDailySearchConsoleSeries: multiple rows on the same date (different queries/pages) are summed", () => {
+  const series = buildDailySearchConsoleSeries(
+    [
+      { date: "2026-08-01", clicks: 3, impressions: 30, position: 4 },
+      { date: "2026-08-01", clicks: 2, impressions: 10, position: 8 },
+    ],
+    "2026-08-01",
+    "2026-08-01"
+  );
+  assert.deepEqual(series, [{ date: "2026-08-01", clicks: 5, impressions: 40 }]);
+});
+
+test("buildDailySearchConsoleSeries: a single-day range returns exactly one point", () => {
+  const series = buildDailySearchConsoleSeries([], "2026-08-05", "2026-08-05");
+  assert.deepEqual(series, [{ date: "2026-08-05", clicks: 0, impressions: 0 }]);
 });

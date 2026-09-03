@@ -9,7 +9,27 @@ import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
 import { DeltaStat } from "@/app/dashboard/_components/DeltaStat";
-import { getComparisonWindow, summarizeSearchConsoleRows, computeDelta, DEFAULT_COMPARISON_WINDOW_DAYS } from "@/lib/dashboard/delta";
+import { TrendChart } from "@/app/dashboard/_components/TrendChart";
+import {
+  getComparisonWindow,
+  summarizeSearchConsoleRows,
+  computeDelta,
+  buildDailySearchConsoleSeries,
+  DEFAULT_COMPARISON_WINDOW_DAYS,
+  type DeltaResult,
+} from "@/lib/dashboard/delta";
+
+/** Phase 7.2I: one plain-language sentence per trend chart, built from the
+ * exact same DeltaResult the stat card above it already shows — no new
+ * classification logic, just describing the number that's already there in
+ * words instead of only a coloured arrow. */
+function trendSentence(metricLabel: string, delta: DeltaResult): string {
+  if (delta.text === "-") return `No ${metricLabel.toLowerCase()} recorded in this window yet.`;
+  if (delta.text === "New") return `${metricLabel} are new this period — nothing recorded in the previous ${DEFAULT_COMPARISON_WINDOW_DAYS} days.`;
+  if (delta.tone === "up") return `${metricLabel} are trending up — ${delta.text} vs. the previous ${DEFAULT_COMPARISON_WINDOW_DAYS} days.`;
+  if (delta.tone === "down") return `${metricLabel} are trending down — ${delta.text} vs. the previous ${DEFAULT_COMPARISON_WINDOW_DAYS} days.`;
+  return `${metricLabel} are flat — no meaningful change vs. the previous ${DEFAULT_COMPARISON_WINDOW_DAYS} days.`;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +97,11 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
   const clicksDelta = computeDelta(current.clicks, previous.clicks);
   const impressionsDelta = computeDelta(current.impressions, previous.impressions);
 
+  // Phase 7.2I: same currentRows already fetched for the stat cards above —
+  // no new query, just a different presentation of it.
+  const dailySeries = buildDailySearchConsoleSeries(currentRows, comparisonWindow.currentStart, comparisonWindow.currentEnd);
+  const latestSyncedDate = currentRows.reduce<string | null>((max, r) => (max === null || r.date > max ? r.date : max), null);
+
   return (
     <>
       <h1 className="dash-page-title">Reports</h1>
@@ -109,6 +134,36 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
         <div className="dash-notice" style={{ marginTop: 16, marginBottom: 28 }}>
           Search Console is connected — data is on its way. Google Search Console data usually takes a couple of days to start appearing after connecting; nothing further is needed on your side.
         </div>
+      )}
+
+      {isSearchConsoleConnected && (
+        <>
+          <h2 style={{ fontSize: "1rem" }}>Clicks &amp; impressions trend</h2>
+          <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: -8, marginBottom: 16 }}>
+            Real Google Search Console data, day by day
+            {latestSyncedDate ? (
+              <>
+                {" "}
+                — through <strong>{new Date(`${latestSyncedDate}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</strong>
+              </>
+            ) : (
+              " — nothing synced for this window yet"
+            )}
+            .
+          </p>
+          <div className="dash-grid dash-grid-cols-2" style={{ marginBottom: 28, gap: 20 }}>
+            <div className="dash-card">
+              <div className="dash-stat-label">Clicks</div>
+              <TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.clicks }))} color="var(--dash-primary)" label="Clicks" />
+              <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 8, marginBottom: 0 }}>{trendSentence("Clicks", clicksDelta)}</p>
+            </div>
+            <div className="dash-card">
+              <div className="dash-stat-label">Impressions</div>
+              <TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.impressions }))} color="var(--dash-info)" label="Impressions" />
+              <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 8, marginBottom: 0 }}>{trendSentence("Impressions", impressionsDelta)}</p>
+            </div>
+          </div>
+        </>
       )}
 
       <h2 style={{ fontSize: "1rem" }}>SEO actions</h2>
