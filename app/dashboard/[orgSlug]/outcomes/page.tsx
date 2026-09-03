@@ -5,6 +5,7 @@ import { listSeoActionsForWebsite } from "@/lib/db/seo-actions";
 import { listLatestOutcomesByActionForWebsite } from "@/lib/db/seo-action-outcomes";
 import { getTask } from "@/lib/db/tasks";
 import { EmptyState } from "@/app/dashboard/_components/EmptyState";
+import { BeforeAfterBars } from "@/app/dashboard/_components/BeforeAfterBars";
 import { classificationLabel, classificationTone, recommendationLabel, OUTCOME_MEASURING_LABEL } from "@/lib/dashboard/outcome-labels";
 
 export const dynamic = "force-dynamic";
@@ -80,12 +81,14 @@ export default async function OutcomesPage({ params }: { params: Promise<{ orgSl
                       <div style={{ fontSize: "0.95rem" }}>
                         {baseline.clicks ?? 0} &rarr; {current.clicks ?? 0}
                       </div>
+                      <BeforeAfterBars baseline={baseline.clicks ?? 0} current={current.clicks ?? 0} color="var(--dash-primary)" label="Clicks" />
                     </div>
                     <div>
                       <div className="dash-stat-label">Impressions</div>
                       <div style={{ fontSize: "0.95rem" }}>
                         {baseline.impressions ?? 0} &rarr; {current.impressions ?? 0}
                       </div>
+                      <BeforeAfterBars baseline={baseline.impressions ?? 0} current={current.impressions ?? 0} color="var(--dash-info)" label="Impressions" />
                     </div>
                     <div>
                       <div className="dash-stat-label">Position</div>
