@@ -101,11 +101,11 @@ test("buildDailySearchConsoleSeries: one point per day across the range, inclusi
   );
 });
 
-test("buildDailySearchConsoleSeries: a day with no rows is zero, not skipped", () => {
+test("buildDailySearchConsoleSeries: a day with no rows is zero clicks/impressions and a null position, not skipped", () => {
   const series = buildDailySearchConsoleSeries([], "2026-08-01", "2026-08-02");
   assert.deepEqual(series, [
-    { date: "2026-08-01", clicks: 0, impressions: 0 },
-    { date: "2026-08-02", clicks: 0, impressions: 0 },
+    { date: "2026-08-01", clicks: 0, impressions: 0, position: null },
+    { date: "2026-08-02", clicks: 0, impressions: 0, position: null },
   ]);
 });
 
@@ -118,10 +118,51 @@ test("buildDailySearchConsoleSeries: multiple rows on the same date (different q
     "2026-08-01",
     "2026-08-01"
   );
-  assert.deepEqual(series, [{ date: "2026-08-01", clicks: 5, impressions: 40 }]);
+  assert.equal(series[0]!.clicks, 5);
+  assert.equal(series[0]!.impressions, 40);
 });
 
 test("buildDailySearchConsoleSeries: a single-day range returns exactly one point", () => {
   const series = buildDailySearchConsoleSeries([], "2026-08-05", "2026-08-05");
-  assert.deepEqual(series, [{ date: "2026-08-05", clicks: 0, impressions: 0 }]);
+  assert.deepEqual(series, [{ date: "2026-08-05", clicks: 0, impressions: 0, position: null }]);
+});
+
+test("buildDailySearchConsoleSeries: position is impression-weighted per day, matching summarizeSearchConsoleRows", () => {
+  // row A: position 2 with 90 impressions, row B: position 20 with 10 impressions -> 3.8, not the plain average (11)
+  const series = buildDailySearchConsoleSeries(
+    [
+      { date: "2026-08-01", clicks: 0, impressions: 90, position: 2 },
+      { date: "2026-08-01", clicks: 0, impressions: 10, position: 20 },
+    ],
+    "2026-08-01",
+    "2026-08-01"
+  );
+  assert.equal(series[0]!.position, 3.8);
+});
+
+test("buildDailySearchConsoleSeries: a row with a null position is excluded from that day's position average but still counts toward clicks/impressions", () => {
+  const series = buildDailySearchConsoleSeries(
+    [
+      { date: "2026-08-01", clicks: 3, impressions: 30, position: null },
+      { date: "2026-08-01", clicks: 2, impressions: 20, position: 5 },
+    ],
+    "2026-08-01",
+    "2026-08-01"
+  );
+  assert.equal(series[0]!.clicks, 5);
+  assert.equal(series[0]!.impressions, 50);
+  assert.equal(series[0]!.position, 5);
+});
+
+test("buildDailySearchConsoleSeries: position doesn't leak across days — each day is weighted independently", () => {
+  const series = buildDailySearchConsoleSeries(
+    [
+      { date: "2026-08-01", clicks: 0, impressions: 10, position: 1 },
+      { date: "2026-08-02", clicks: 0, impressions: 10, position: 9 },
+    ],
+    "2026-08-01",
+    "2026-08-02"
+  );
+  assert.equal(series[0]!.position, 1);
+  assert.equal(series[1]!.position, 9);
 });

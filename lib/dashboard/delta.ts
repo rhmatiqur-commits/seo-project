@@ -72,29 +72,38 @@ export interface DailySearchConsolePoint {
   date: string;
   clicks: number;
   impressions: number;
+  /** Impression-weighted average for that day — null on a day with no
+   * impressions at all, same "don't invent a number" rule as
+   * SearchConsoleSummary.position. */
+  position: number | null;
 }
 
 /**
  * Phase 7.2I: aggregates raw Search Console rows (one row per
  * date+query+page — several rows can share a date) into one point per
  * calendar day across [startDate, endDate] inclusive, for the trend charts
- * on Reports. A day with no synced rows gets zero rather than being
- * skipped, so the chart is a continuous, evenly-spaced timeline instead of
- * gaps a client could misread as missing days — same "zero is honest,
- * never invent a number" rule the rest of this module already follows.
- * No new query: callers already fetch these rows for the existing
- * period-over-period stat cards.
+ * on Reports and Home. A day with no synced rows gets zero clicks/
+ * impressions (never skipped, so the chart is a continuous, evenly-spaced
+ * timeline instead of gaps a client could misread as missing days) and a
+ * null position (there is genuinely nothing to average). Position uses the
+ * exact same impression-weighted formula as summarizeSearchConsoleRows, one
+ * day at a time instead of over the whole window. No new query: callers
+ * already fetch these rows for the existing period-over-period stat cards.
  */
 export function buildDailySearchConsoleSeries(
   rows: readonly (SearchConsoleRowLike & { date: string })[],
   startDate: string,
   endDate: string
 ): DailySearchConsolePoint[] {
-  const byDate = new Map<string, { clicks: number; impressions: number }>();
+  const byDate = new Map<string, { clicks: number; impressions: number; posSum: number; posWeight: number }>();
   for (const r of rows) {
-    const existing = byDate.get(r.date) ?? { clicks: 0, impressions: 0 };
+    const existing = byDate.get(r.date) ?? { clicks: 0, impressions: 0, posSum: 0, posWeight: 0 };
     existing.clicks += r.clicks;
     existing.impressions += r.impressions;
+    if (r.position !== null) {
+      existing.posSum += r.position * r.impressions;
+      existing.posWeight += r.impressions;
+    }
     byDate.set(r.date, existing);
   }
   const points: DailySearchConsolePoint[] = [];
@@ -103,7 +112,12 @@ export function buildDailySearchConsoleSeries(
   while (cursor.getTime() <= end.getTime()) {
     const iso = toIsoDate(cursor);
     const agg = byDate.get(iso);
-    points.push({ date: iso, clicks: agg?.clicks ?? 0, impressions: agg?.impressions ?? 0 });
+    points.push({
+      date: iso,
+      clicks: agg?.clicks ?? 0,
+      impressions: agg?.impressions ?? 0,
+      position: agg && agg.posWeight > 0 ? Math.round((agg.posSum / agg.posWeight) * 10) / 10 : null,
+    });
     cursor = new Date(cursor.getTime() + DAY_MS);
   }
   return points;

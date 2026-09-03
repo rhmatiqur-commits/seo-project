@@ -31,6 +31,17 @@ function trendSentence(metricLabel: string, delta: DeltaResult): string {
   return `${metricLabel} are flat — no meaningful change vs. the previous ${DEFAULT_COMPARISON_WINDOW_DAYS} days.`;
 }
 
+/** Phase 7.2I: position needs its own wording — a falling number is the
+ * improvement, unlike every other metric on this page, so reusing
+ * trendSentence's up/down framing would read backwards. */
+function positionSentence(current: number | null, previous: number | null): string {
+  if (current === null) return "Not enough ranking data in this window yet.";
+  if (previous === null) return `Average position is ${current} this period — nothing to compare it against yet.`;
+  if (current < previous) return `Average position improved — from ${previous} to ${current}.`;
+  if (current > previous) return `Average position slipped — from ${previous} to ${current}.`;
+  return `Average position is unchanged at ${current}.`;
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -151,7 +162,7 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
             )}
             .
           </p>
-          <div className="dash-grid dash-grid-cols-2" style={{ marginBottom: 28, gap: 20 }}>
+          <div className="dash-grid dash-grid-cols-3" style={{ marginBottom: 28, gap: 20 }}>
             <div className="dash-card">
               <div className="dash-stat-label">Clicks</div>
               <TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.clicks }))} color="var(--dash-primary)" label="Clicks" />
@@ -161,6 +172,16 @@ export default async function ReportsPage({ params }: { params: Promise<{ orgSlu
               <div className="dash-stat-label">Impressions</div>
               <TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.impressions }))} color="var(--dash-info)" label="Impressions" />
               <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 8, marginBottom: 0 }}>{trendSentence("Impressions", impressionsDelta)}</p>
+            </div>
+            <div className="dash-card">
+              <div className="dash-stat-label">Average position</div>
+              <TrendChart
+                points={dailySeries.filter((p) => p.position !== null).map((p) => ({ date: p.date, value: p.position as number }))}
+                color="var(--dash-warning)"
+                label="Average position"
+                invert
+              />
+              <p className="dash-muted" style={{ fontSize: "0.8rem", marginTop: 8, marginBottom: 0 }}>{positionSentence(current.position, previous.position)}</p>
             </div>
           </div>
         </>

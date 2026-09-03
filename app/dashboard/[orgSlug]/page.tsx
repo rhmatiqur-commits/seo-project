@@ -130,8 +130,31 @@ export default async function OrganizationHomePage({ params }: { params: Promise
             deltaSuffix="vs previous 28 days"
             trend={<TrendChart points={dailySeries.map((p) => ({ date: p.date, value: p.impressions }))} color="var(--dash-info)" label="Impressions" />}
           />
-          <DeltaStat label="Average position" value={current.position !== null ? String(current.position) : "-"} secondary={`previously ${previous.position ?? "-"}`} />
-          <DeltaStat label="CTR" value={currentCtr} secondary="last 28 days" />
+          <DeltaStat
+            label="Average position"
+            value={current.position !== null ? String(current.position) : "-"}
+            secondary={`previously ${previous.position ?? "-"}`}
+            trend={
+              <TrendChart
+                points={dailySeries.filter((p) => p.position !== null).map((p) => ({ date: p.date, value: p.position as number }))}
+                color="var(--dash-warning)"
+                label="Average position"
+                invert
+              />
+            }
+          />
+          <DeltaStat
+            label="CTR"
+            value={currentCtr}
+            secondary="last 28 days"
+            trend={
+              <TrendChart
+                points={dailySeries.map((p) => ({ date: p.date, value: p.impressions > 0 ? Math.round((p.clicks / p.impressions) * 1000) / 10 : 0 }))}
+                color="var(--dash-good)"
+                label="CTR"
+              />
+            }
+          />
         </div>
         {gscStats.totalRows === 0 && (
           <div className="dash-notice" style={{ marginTop: 16, marginBottom: 0 }}>
