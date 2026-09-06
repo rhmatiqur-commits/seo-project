@@ -68,6 +68,19 @@ export default async function WebsiteContentPage({ params }: { params: Promise<{
               <textarea name="content_constraints" defaultValue={website.content_constraints ?? ""} rows={2} style={{ width: "100%" }} />
             </label>
           </div>
+          <div className="row" style={{ alignItems: "flex-start", marginTop: "8px" }}>
+            <label style={{ flex: 1, minWidth: "20rem" }}>
+              New-page URL prefix (e.g. &quot;blog&quot; — leave blank if new pages go at the site root)
+              <br />
+              <input
+                type="text"
+                name="content_path_prefix"
+                defaultValue={website.content_path_prefix ?? ""}
+                placeholder="blog"
+                style={{ width: "100%" }}
+              />
+            </label>
+          </div>
           <p>
             <button className="btn secondary" type="submit">
               Save business profile

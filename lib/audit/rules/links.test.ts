@@ -27,6 +27,7 @@ function fakeWebsite(): WebsiteForAudit {
     target_audience: null,
     brand_voice: null,
     content_constraints: null,
+    content_path_prefix: null,
     autonomy_level: "AI_RECOMMENDS",
     action_outcomes_frequency_days: 1,
     next_action_outcomes_at: null,

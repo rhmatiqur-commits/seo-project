@@ -35,6 +35,12 @@ export interface BuildContentBriefInput {
     targetAudience: string | null;
     brandVoice: string | null;
     contentConstraints: string | null;
+    /** Path segment (e.g. "blog") a brand-new page's URL is suggested under
+     * — set only for a website whose content adapter always places new
+     * pages in one specific subdirectory (see websites.content_path_prefix,
+     * migration 0028). Null means "unknown/site root", same as every other
+     * content-profile field here — never guessed. */
+    contentPathPrefix: string | null;
   };
   opportunity: {
     id: string;
@@ -57,14 +63,22 @@ export interface BuildContentBriefInput {
 /** A simple, honest URL-slug recommendation for a brand-new page — a
  * recommendation, not a guarantee of final placement (surfaced as such in
  * the brief). Never used when optimising an existing page (its real URL is
- * used instead). */
-export function suggestUrlSlug(primaryKeywordText: string, baseUrl: string): string {
+ * used instead).
+ *
+ * `pathPrefix` (websites.content_path_prefix) folds in a website's known
+ * new-page subdirectory when one is configured, so the suggestion matches
+ * where the content adapter will actually place the file (e.g. CV Central's
+ * real site only ever creates new pages under blog/ — see
+ * lib/publishing/github/cvcentral-adapter.ts). Null/blank behaves exactly
+ * as before: a bare slug at the site root. */
+export function suggestUrlSlug(primaryKeywordText: string, baseUrl: string, pathPrefix?: string | null): string {
   const slug = normalizeKeyword(primaryKeywordText)
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-");
   const origin = baseUrl.replace(/\/+$/, "");
-  return `${origin}/${slug || "new-page"}`;
+  const prefix = pathPrefix?.trim().replace(/^\/+|\/+$/g, "");
+  return prefix ? `${origin}/${prefix}/${slug || "new-page"}` : `${origin}/${slug || "new-page"}`;
 }
 
 function computeInternalLinkOpportunities(
@@ -130,7 +144,7 @@ export function buildContentBrief(input: BuildContentBriefInput): ContentBrief {
     input.opportunity.type === "OPTIMISE_EXISTING_PAGE"
       ? (input.existingPage?.url ?? null)
       : primaryKeywordText
-        ? suggestUrlSlug(primaryKeywordText, input.website.baseUrl)
+        ? suggestUrlSlug(primaryKeywordText, input.website.baseUrl, input.website.contentPathPrefix)
         : null;
 
   const otherPagesExcludingExisting = input.existingPage ? input.otherPages.filter((p) => p.id !== (input.existingPage as { id?: string }).id) : input.otherPages;
