@@ -171,21 +171,25 @@ export async function updateSerpLocationAction(formData: FormData): Promise<void
 }
 
 /** Sets the business-fact fields the content brief reads (Phase 4) —
- * business_description/target_audience/brand_voice/content_constraints.
- * Blank fields are stored as null, never a placeholder string; the brief
- * builder surfaces a null field as an explicit missingBusinessInfo entry
- * rather than inventing one (see lib/content/build-brief.ts). */
+ * business_description/target_audience/brand_voice/content_constraints/
+ * content_path_prefix. Blank fields are stored as null, never a placeholder
+ * string; the brief builder surfaces a null business-fact field as an
+ * explicit missingBusinessInfo entry rather than inventing one, and a null
+ * content_path_prefix simply means "suggest a bare slug at the site root"
+ * (see lib/content/build-brief.ts). */
 export async function updateContentProfileAction(formData: FormData): Promise<void> {
   const websiteId = String(formData.get("website_id"));
   const businessDescription = String(formData.get("business_description") ?? "").trim();
   const targetAudience = String(formData.get("target_audience") ?? "").trim();
   const brandVoice = String(formData.get("brand_voice") ?? "").trim();
   const contentConstraints = String(formData.get("content_constraints") ?? "").trim();
+  const contentPathPrefix = String(formData.get("content_path_prefix") ?? "").trim();
   await updateWebsite(websiteId, {
     business_description: businessDescription || null,
     target_audience: targetAudience || null,
     brand_voice: brandVoice || null,
     content_constraints: contentConstraints || null,
+    content_path_prefix: contentPathPrefix || null,
   });
   revalidatePath(`/admin/websites/${websiteId}/content`);
   redirect(`/admin/websites/${websiteId}/content`);

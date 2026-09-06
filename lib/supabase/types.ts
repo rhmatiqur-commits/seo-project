@@ -2463,6 +2463,7 @@ export type Database = {
           brand_voice: string | null
           business_description: string | null
           content_constraints: string | null
+          content_path_prefix: string | null
           crawl_frequency_days: number
           crawl_max_depth: number
           crawl_max_pages: number
@@ -2494,6 +2495,7 @@ export type Database = {
           brand_voice?: string | null
           business_description?: string | null
           content_constraints?: string | null
+          content_path_prefix?: string | null
           crawl_frequency_days?: number
           crawl_max_depth?: number
           crawl_max_pages?: number
@@ -2525,6 +2527,7 @@ export type Database = {
           brand_voice?: string | null
           business_description?: string | null
           content_constraints?: string | null
+          content_path_prefix?: string | null
           crawl_frequency_days?: number
           crawl_max_depth?: number
           crawl_max_pages?: number

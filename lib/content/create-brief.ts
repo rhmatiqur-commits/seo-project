@@ -79,6 +79,7 @@ export async function createContentBriefForOpportunity(opportunityId: string): P
       targetAudience: website.target_audience,
       brandVoice: website.brand_voice,
       contentConstraints: website.content_constraints,
+      contentPathPrefix: website.content_path_prefix,
     },
     opportunity: { id: opportunity.id, type: opportunity.type, title: opportunity.title, description: opportunity.description, rationale: opportunity.rationale },
     detector: detectorRow

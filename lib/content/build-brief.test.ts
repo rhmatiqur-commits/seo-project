@@ -12,6 +12,7 @@ function baseInput(overrides: Partial<BuildContentBriefInput> = {}): BuildConten
       targetAudience: null,
       brandVoice: null,
       contentConstraints: null,
+      contentPathPrefix: null,
     },
     opportunity: {
       id: "opp-1",
@@ -36,11 +37,52 @@ test("suggestUrlSlug produces a lowercase hyphenated slug under the base URL", (
   assert.equal(suggestUrlSlug("Landlord Accountant Coventry", "https://acme.example.com/"), "https://acme.example.com/landlord-accountant-coventry");
 });
 
+test("suggestUrlSlug: with no pathPrefix argument at all, behaves exactly as before (backward compatible)", () => {
+  assert.equal(suggestUrlSlug("Landlord Accountant Coventry", "https://acme.example.com/"), "https://acme.example.com/landlord-accountant-coventry");
+});
+
+test("suggestUrlSlug: a configured pathPrefix places the slug under it", () => {
+  assert.equal(suggestUrlSlug("Landlord Accountant Coventry", "https://acme.example.com", "blog"), "https://acme.example.com/blog/landlord-accountant-coventry");
+});
+
+test("suggestUrlSlug: pathPrefix tolerates leading/trailing slashes", () => {
+  assert.equal(suggestUrlSlug("Landlord Accountant Coventry", "https://acme.example.com", "/blog/"), "https://acme.example.com/blog/landlord-accountant-coventry");
+});
+
+test("suggestUrlSlug: null/blank pathPrefix falls back to a bare slug at the site root", () => {
+  assert.equal(suggestUrlSlug("Landlord Accountant Coventry", "https://acme.example.com", null), "https://acme.example.com/landlord-accountant-coventry");
+  assert.equal(suggestUrlSlug("Landlord Accountant Coventry", "https://acme.example.com", "  "), "https://acme.example.com/landlord-accountant-coventry");
+});
+
 test("CREATE_NEW_PAGE: targetUrl is a recommended slug, existingPage is null", () => {
   const brief = buildContentBrief(baseInput());
   assert.equal(brief.targetUrl, "https://acme.example.com/landlord-accountant-coventry");
   assert.equal(brief.existingPage, null);
   assert.equal(brief.contentType, "CREATE_NEW_PAGE");
+});
+
+test("CREATE_NEW_PAGE: a website with a configured contentPathPrefix gets a targetUrl under it", () => {
+  const brief = buildContentBrief(baseInput({ website: { ...baseInput().website, contentPathPrefix: "blog" } }));
+  assert.equal(brief.targetUrl, "https://acme.example.com/blog/landlord-accountant-coventry");
+});
+
+test("OPTIMISE_EXISTING_PAGE: contentPathPrefix is ignored — the real existing page URL is always used", () => {
+  const brief = buildContentBrief(
+    baseInput({
+      website: { ...baseInput().website, contentPathPrefix: "blog" },
+      opportunity: { id: "opp-2", type: "OPTIMISE_EXISTING_PAGE", title: "t", description: "d", rationale: "r" },
+      existingPage: {
+        id: "page-1",
+        url: "https://acme.example.com/existing",
+        title: "Existing title",
+        metaDescription: null,
+        h1: "Existing H1",
+        headings: ["Heading one"],
+        wordCount: 400,
+      },
+    })
+  );
+  assert.equal(brief.targetUrl, "https://acme.example.com/existing");
 });
 
 test("OPTIMISE_EXISTING_PAGE: targetUrl is the real existing page URL, never a guessed slug", () => {
@@ -81,6 +123,7 @@ test("missingBusinessInfo omits configured fields", () => {
         targetAudience: "Landlords in Coventry",
         brandVoice: "Friendly, plain-English",
         contentConstraints: "Never promise guaranteed tax savings.",
+        contentPathPrefix: null,
       },
     })
   );
