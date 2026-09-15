@@ -31,7 +31,13 @@ async function handle(req: NextRequest): Promise<Response> {
   if (!parsed.success) return jsonZodError(parsed.error);
 
   const organization = await getOrganization(parsed.data.organizationId);
-  if (!organization) return jsonError("Organisation not found", 404);
+  // Same response whether the id doesn't exist at all or exists but isn't
+  // allowlisted for this integration (organizations.businessos_integration_enabled,
+  // migration 0029) -- a stolen BUSINESSOS_INTEGRATION_SECRET must not be
+  // able to tell those two cases apart, or probe which organisation ids
+  // are real. That flag is trusted-admin-controlled only; nothing in this
+  // route (or the invitations route) ever sets it.
+  if (!organization || !organization.businessos_integration_enabled) return jsonError("Organisation not found", 404);
 
   return NextResponse.json({
     organizationId: organization.id,

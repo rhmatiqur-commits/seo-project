@@ -44,8 +44,11 @@ const envSchema = z
     // sweep, and neither should ever double as the other. Optional at
     // boot (same posture as GOOGLE_OAUTH_CLIENT_ID below) so a deployment
     // without the BusinessOS integration configured yet still starts --
-    // both new routes return 500 with a clear message if it's missing,
-    // never silently accept an unauthenticated request.
+    // both new routes then return the same 401 Unauthorized as a wrong
+    // bearer token (lib/api/businessos-auth.ts's isAuthorizedBearer fails
+    // closed on an undefined secret), never a distinct 500 that would tell
+    // a prober "this endpoint exists but isn't guarded yet" -- and never
+    // silently accept an unauthenticated request either way.
     BUSINESSOS_INTEGRATION_SECRET: z.string().min(1).optional(),
 
     // Google Search Console integration (Phase 2C) — opt-in, not required at

@@ -1153,6 +1153,7 @@ export type Database = {
       }
       organizations: {
         Row: {
+          businessos_integration_enabled: boolean
           created_at: string
           id: string
           name: string
@@ -1160,6 +1161,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          businessos_integration_enabled?: boolean
           created_at?: string
           id?: string
           name: string
@@ -1167,6 +1169,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          businessos_integration_enabled?: boolean
           created_at?: string
           id?: string
           name?: string

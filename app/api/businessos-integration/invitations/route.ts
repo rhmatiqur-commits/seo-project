@@ -23,10 +23,21 @@ import { jsonError, jsonZodError, withErrorHandling } from "@/lib/api/respond";
 const requestSchema = z.object({
   organizationId: z.string().uuid(),
   email: z.string().trim().toLowerCase().email(),
-  // The real, current role vocabulary only (migration 0026) -- the dead
-  // Phase 1 values (owner/admin/member) are deliberately not accepted
-  // here even though they remain valid enum values in Postgres.
-  role: z.enum(["OWNER", "MANAGER", "EDITOR", "VIEWER"]),
+  // Deliberately narrower than this platform's own role vocabulary
+  // (OWNER/MANAGER/EDITOR/VIEWER, migration 0026) -- EDITOR is excluded
+  // here on purpose (hardening review, post-Phase 3D). BusinessOS's own
+  // approved role mapping (its src/core/seo/roles.ts) only ever produces
+  // OWNER/MANAGER/VIEWER; EDITOR was never a value this integration
+  // needed to accept, so it's rejected at this boundary rather than left
+  // reachable "just in case" -- if BusinessOS's mapping ever changes to
+  // want EDITOR, that's a deliberate contract change to make here, not a
+  // value this endpoint should have been silently willing to grant all
+  // along. The normal, human-facing Settings-page invitation flow
+  // (app/dashboard/actions.ts) is untouched and still grants all four
+  // roles including EDITOR -- this restriction applies only to requests
+  // authenticated as the BusinessOS integration. The dead Phase 1 values
+  // (owner/admin/member) remain excluded as before.
+  role: z.enum(["OWNER", "MANAGER", "VIEWER"]),
 });
 
 async function handle(req: NextRequest): Promise<Response> {
@@ -40,7 +51,12 @@ async function handle(req: NextRequest): Promise<Response> {
   const { organizationId, email, role } = parsed.data;
 
   const organization = await getOrganization(organizationId);
-  if (!organization) return jsonError("Organisation not found", 404);
+  // Same response whether the id doesn't exist at all or exists but isn't
+  // allowlisted for this integration (organizations.businessos_integration_enabled,
+  // migration 0029) -- see verify-organization/route.ts's identical check
+  // for the full rationale. That flag is trusted-admin-controlled only;
+  // nothing in this route ever sets it.
+  if (!organization || !organization.businessos_integration_enabled) return jsonError("Organisation not found", 404);
 
   // Already a member? Don't create a redundant invitation -- report it
   // plainly so BusinessOS can show "this person already has SEO access"
