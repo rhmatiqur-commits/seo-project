@@ -36,6 +36,18 @@ const envSchema = z
     // deploying there later needs zero extra auth code.
     CRON_SECRET: z.string().min(1),
 
+    // Phase 3D: gates the two POST /api/businessos-integration/** routes
+    // (organisation verification, invitation creation) -- the BusinessOS
+    // platform's dedicated integration credential. Deliberately a
+    // separate secret from CRON_SECRET/ADMIN_PASSWORD: this one can create
+    // real organisation memberships, CRON_SECRET only triggers a job
+    // sweep, and neither should ever double as the other. Optional at
+    // boot (same posture as GOOGLE_OAUTH_CLIENT_ID below) so a deployment
+    // without the BusinessOS integration configured yet still starts --
+    // both new routes return 500 with a clear message if it's missing,
+    // never silently accept an unauthenticated request.
+    BUSINESSOS_INTEGRATION_SECRET: z.string().min(1).optional(),
+
     // Google Search Console integration (Phase 2C) — opt-in, not required at
     // boot. Without these, the "Connect Search Console" admin action fails
     // with a clear error instead of the whole app refusing to start; every

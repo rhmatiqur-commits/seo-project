@@ -45,3 +45,21 @@ The following is **not fixable today** without building real per-user sessions, 
 - **Per-organization API credentials.** If/when clients need programmatic API access, they'll need their own scoped tokens, not the shared operator password.
 
 Until then: treat this deployment as **single-operator** — one team, one shared credential, trusted to only touch what they should. Do not expose `ADMIN_PASSWORD` beyond that team, and do not onboard a client who needs their data isolated from other clients' operators without first building the above.
+
+## Addendum: `/api/businessos-integration/**` (Phase 3D)
+
+Two new routes, added for a separate, independent product (BusinessOS) to verify an organisation and request an invitation on a customer's behalf — see that platform's own `docs/architecture.md` ("Growth module (SEO)") for the full cross-product rationale. Neither route is part of the `/api/**` Basic Auth surface described above; both are explicitly excluded in `proxy.ts` (same mechanism as `/api/scheduler/run`) and instead authenticate with their own dedicated bearer credential.
+
+| Route | Method | Data sensitivity | Auth |
+|---|---|---|---|
+| `/api/businessos-integration/verify-organization` | POST | Returns only `{ organizationId, name, slug }` for one organisation — no operational data | `Authorization: Bearer $BUSINESSOS_INTEGRATION_SECRET`, timing-safe compared (`lib/api/businessos-auth.ts`) |
+| `/api/businessos-integration/invitations` | POST | Creates a real `organization_invitations` row (existing Phase 7 mechanism, unchanged) for a given org/email/role, or reports the email already has a membership | Same |
+
+Security properties specific to this integration:
+
+- **A dedicated credential, not a widened one.** `BUSINESSOS_INTEGRATION_SECRET` is its own environment variable, checked with `crypto.timingSafeEqual` (stronger than `CRON_SECRET`'s plain `===`, since this credential can create real memberships, not just trigger a job sweep). It is never `ADMIN_PASSWORD`, and a caller holding it gets exactly these two operations — nothing else `/admin`/`/api` exposes.
+- **Role validation is strict.** `/invitations` only accepts the real, current role vocabulary (`OWNER`/`MANAGER`/`EDITOR`/`VIEWER`) — the dead Phase 1 enum values (`owner`/`admin`/`member`) are rejected even though Postgres still permits them as enum values, closing off any privilege-confusion between the two vocabularies.
+- **No new trust in "is this a real person."** The invitation-acceptance flow (`app/dashboard/accept-invite/**`) is completely unchanged — a BusinessOS-requested invitation still requires the recipient to set a password or sign in with their existing SEO account, exactly as a manually-sent invitation does. This integration can request that an invitation be sent; it cannot grant access on its own.
+- **Idempotent by construction, not just by courtesy.** A repeated request for the same (org, email) either reports the existing pending invitation's id or the existing membership, and the underlying unique index (migration 0027) is the actual backstop if two requests race.
+- **Known limitation — rate limiting.** `lib/api/rate-limit.ts` is an in-memory, single-instance limiter — adequate for today's single known caller, not a durable multi-instance solution. Upgrade to a shared store (e.g. the existing Postgres, or a dedicated store) if the caller pool ever grows beyond one trusted integration.
+- **Known limitation — attribution.** Invitations created this way have `invited_by = null` (that column has always been nullable) rather than a synthetic system user, per an explicit product decision — see `lib/db/invitations.ts`'s `CreateInvitationInput` comment. A `null` `invited_by` on an otherwise-normal invitation row is how to distinguish a BusinessOS-originated invite from a Settings-page one today; there is no separate "source" column.

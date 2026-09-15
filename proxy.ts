@@ -10,13 +10,21 @@ import { NextResponse, type NextRequest } from "next/server";
  *
  * Phase 2D widens this to also cover `/api/**`: every route under it was
  * previously reachable by anyone on the internet with zero credentials (see
- * SECURITY_AUDIT.md). Two routes are deliberately excluded because they
- * can't carry Basic Auth at all and are protected a different way:
+ * SECURITY_AUDIT.md). A few routes/prefixes are deliberately excluded
+ * because they can't carry Basic Auth at all and are protected a
+ * different way:
  *  - /api/scheduler/run — GitHub Actions/Vercel Cron send a bearer secret
  *    (CRON_SECRET), checked inside the route handler itself.
  *  - /api/auth/google-search-console/callback — Google's OAuth redirect
  *    can't carry any auth header; protected by a signed, expiring `state`
  *    param instead (lib/search-console/state.ts).
+ *  - /api/businessos-integration/** (Phase 3D) — the BusinessOS platform
+ *    is a separate deployed service, not a browser carrying ADMIN_PASSWORD
+ *    interactively; it authenticates with its own dedicated bearer secret
+ *    (BUSINESSOS_INTEGRATION_SECRET, checked inside each route handler via
+ *    lib/api/businessos-auth.ts) — same "can't/shouldn't carry Basic Auth,
+ *    has its own proof instead" reasoning as CRON_SECRET above, not a
+ *    widening of the admin surface.
  *
  * Phase 7 adds a *separate* auth model for `/dashboard/**` — real Supabase
  * Auth sessions (client login), not the shared ADMIN_PASSWORD. This is a
@@ -33,7 +41,13 @@ import { NextResponse, type NextRequest } from "next/server";
  * Named `proxy.ts` per Next.js's current convention (the successor to
  * `middleware.ts`, which is now deprecated).
  */
-const UNAUTHENTICATED_API_PATHS = ["/api/scheduler/run", "/api/auth/google-search-console/callback"];
+const UNAUTHENTICATED_API_PATHS = [
+  "/api/scheduler/run",
+  "/api/auth/google-search-console/callback",
+  // Phase 3D: authenticated by lib/api/businessos-auth.ts's bearer check
+  // inside each route handler, not Basic Auth — see the comment above.
+  "/api/businessos-integration",
+];
 
 function requiresBasicAuth(pathname: string): boolean {
   if (pathname.startsWith("/admin")) return true;
